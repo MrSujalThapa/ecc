@@ -205,7 +205,7 @@ export function CommandMap({
 
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-  /** Disaster stack: off in normal only; on for disaster, world_cup, or queue "All modes". */
+  /** Disaster-only overlays (heatmap, zones, roads); off in normal. Incident clusters are core. */
   const disasterStackApplicable =
     mode === "disaster" || mode === "world_cup" || mode === "all";
   /** Event overlays: world_cup or queue "All modes". */
@@ -406,11 +406,9 @@ export function CommandMap({
       return;
     }
 
-    if (disasterStackApplicable) {
-      setLayerOverrides((current) =>
-        current.clusters === true ? current : { ...current, clusters: true },
-      );
-    }
+    setLayerOverrides((current) =>
+      current.clusters === true ? current : { ...current, clusters: true },
+    );
 
     const cluster = clusters.find((c) => c.cluster_id === selectedClusterId);
     const center = cluster?.center;
@@ -427,7 +425,7 @@ export function CommandMap({
       duration: 700,
       essential: true,
     });
-  }, [clusters, disasterStackApplicable, mapReady, selectedClusterId]);
+  }, [clusters, mapReady, selectedClusterId]);
 
   if (!token) {
     return (
