@@ -1,0 +1,11 @@
+feat(app): add App Router APIs, pages, and Supabase-backed home demo
+
+Add the full emergency/operator demo surface under app/: Twilio, ElevenLabs,
+and call lifecycle API routes; operator and dev endpoints; simulate routes;
+dashboard and dev voice-sim pages; chat completions route.
+
+Rework app/page.tsx to load recent incidents via the server Supabase client
+with clear empty/error handling for RLS.
+
+Note: The working tree treats the whole app/ directory as the scope of this
+change (new route handlers and pages plus the updated home page).
