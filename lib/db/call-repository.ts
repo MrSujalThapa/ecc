@@ -69,7 +69,12 @@ import type { AppMode, OperatorTransferStatus } from "@/lib/types/enums";
 import type { Json } from "@/lib/types/json";
 import { callSessionToDb, newCallSessionInsertRow } from "./call-session-row";
 import { incidentToDb, newIncidentInsertRow } from "./incident-row";
-import { mapCallSessionRow, mapIncidentRow, mapTranscriptRow } from "./mappers";
+import {
+  mapCallSessionRow,
+  mapEventLayerRow,
+  mapIncidentRow,
+  mapTranscriptRow,
+} from "./mappers";
 
 const insertAudit = async (
   client: SupabaseClient,
@@ -1273,10 +1278,15 @@ export const repositorySimulateWorldCup = async (input: {
     mode: "world_cup",
     ...input,
   });
+  // Pull event_layers from Supabase when configured (seeded by
+  // `20260509200000_seed_event_layers.sql`); fall back to [] for
+  // in-memory dev / vitest runs that don't bind Supabase.
+  const eventLayerRecords = await listEventLayerRecordsForMode("world_cup");
+  const event_layers = eventLayerRecords.map(mapEventLayerRow);
   return {
     created_incidents,
     created_call_sessions,
-    event_layers: [],
+    event_layers,
     mode: "world_cup",
   };
 };

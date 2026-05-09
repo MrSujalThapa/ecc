@@ -26,16 +26,54 @@ export const simulateSeedJitter = (seedIndex: number): { lat: number; lng: numbe
 /**
  * One entry per `DISASTER_SCENARIOS` row (same order). Only these fields are
  * shared with map / event-zone geometry; narrative fields stay in the server module.
+ *
+ * Slots 0–3 anchor the original demo invariants (tests in
+ * `lib/db/call-repository.test.ts` rely on slot 0 → structure_fire). Slots
+ * 4–28 cover `project_plan.md` §12.1's "29 earthquake-related mini-transcripts"
+ * across critical / urgent / non_emergency / unknown bands so the rotation
+ * `seedIndex % scenarios.length` produces 29 unique pins around Toronto.
  */
 export const DISASTER_SIM_SEED_GEO_SLOTS: readonly {
   latOffset: number;
   lngOffset: number;
   urgency: Urgency;
 }[] = [
+  // 0–3: original four — DO NOT REORDER (tests depend on slot 0).
   { latOffset: 0.015, lngOffset: -0.018, urgency: "critical" },
   { latOffset: -0.012, lngOffset: 0.022, urgency: "urgent" },
   { latOffset: 0.028, lngOffset: 0.01, urgency: "urgent" },
   { latOffset: -0.02, lngOffset: -0.025, urgency: "non_emergency" },
+  // 4–9: critical surge cohort.
+  { latOffset: 0.03, lngOffset: -0.04, urgency: "critical" },
+  { latOffset: -0.018, lngOffset: -0.03, urgency: "critical" },
+  { latOffset: -0.005, lngOffset: 0.01, urgency: "critical" },
+  { latOffset: 0.035, lngOffset: 0.01, urgency: "urgent" },
+  { latOffset: 0.005, lngOffset: -0.005, urgency: "critical" },
+  { latOffset: 0.0085, lngOffset: -0.0625, urgency: "critical" },
+  // 10–17: urgent cohort scattered across central Toronto.
+  { latOffset: 0.0, lngOffset: -0.012, urgency: "urgent" },
+  { latOffset: 0.012, lngOffset: -0.015, urgency: "urgent" },
+  { latOffset: 0.012, lngOffset: -0.005, urgency: "urgent" },
+  { latOffset: -0.022, lngOffset: -0.02, urgency: "urgent" },
+  { latOffset: -0.005, lngOffset: -0.012, urgency: "urgent" },
+  { latOffset: 0.015, lngOffset: -0.027, urgency: "urgent" },
+  { latOffset: 0.005, lngOffset: 0.015, urgency: "urgent" },
+  { latOffset: 0.0, lngOffset: -0.025, urgency: "urgent" },
+  // 18: urgent (Scarborough).
+  { latOffset: 0.02, lngOffset: 0.03, urgency: "urgent" },
+  // 19–26 & 28: non_emergency cohort (infrastructure / minor reports).
+  { latOffset: -0.01, lngOffset: -0.05, urgency: "non_emergency" },
+  { latOffset: 0.02, lngOffset: -0.025, urgency: "non_emergency" },
+  { latOffset: 0.005, lngOffset: -0.045, urgency: "non_emergency" },
+  { latOffset: 0.013, lngOffset: -0.035, urgency: "non_emergency" },
+  { latOffset: 0.02, lngOffset: 0.03, urgency: "non_emergency" },
+  { latOffset: 0.005, lngOffset: -0.02, urgency: "non_emergency" },
+  { latOffset: -0.005, lngOffset: 0.03, urgency: "non_emergency" },
+  { latOffset: 0.01, lngOffset: -0.015, urgency: "non_emergency" },
+  // 27: unknown — caller cut off, no clear urgency.
+  { latOffset: -0.005, lngOffset: 0.005, urgency: "unknown" },
+  // 28: aftershock check-in — non_emergency tail.
+  { latOffset: 0.015, lngOffset: -0.018, urgency: "non_emergency" },
 ];
 
 const disasterSlotCount = DISASTER_SIM_SEED_GEO_SLOTS.length;

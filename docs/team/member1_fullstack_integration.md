@@ -187,6 +187,21 @@ This consolidates the “integration notes” into this Member 1 status doc so t
 - **`lib/mock/disasterLayers.ts`**: static Mapbox **`EventLayer`** lists derive from **`EVENT_ZONES`** (impact polygons + blocked roads) instead of hard-coded coordinates.
 - **`POST /api/simulate/disaster`**: route **`maxCap`** raised to **100**; **`DemoControls`** default disaster **`batch_size`** is **50**.
 
+### Disaster + World Cup seed expansion + `event_layers` SQL seed (`project_plan` §12.1, §13.1–§13.3)
+
+- **`lib/mock/simulate-seed-geometry.ts`**: **`DISASTER_SIM_SEED_GEO_SLOTS`** grew from **4 → 29** entries (slots 0–3 unchanged so `repositorySimulateDisaster` test invariants — slot 0 → `structure_fire`, summary contains "smoke", `next_question` contains "floor" — still hold). Mix: **6 critical, 12 urgent, 10 non_emergency, 1 unknown** Toronto-area offsets. **`disasterSimImpactZoneBboxes`** automatically picks up the new slots so the impact-zone envelopes widen to the full cohort.
+- **`lib/server/simulate-seed-enrichment.ts`** — **`DISASTER_SCENARIOS`**: 4 → **29** earthquake-related mini-transcripts (project_plan §12.1) covering trapped persons, gas leaks, structural collapse, elevator entrapment, broken water main, fallen tree, abandoned vehicle, transit delay, aftershock check‑in, plus an "unclear caller" cut-off case for the `unknown` urgency band.
+- **`lib/server/simulate-seed-enrichment.ts`** — **`WORLD_CUP_SCENARIOS`**: 4 → **13** with **multilingual** seed_caller_text plus `caller_language` / `original_text` in `collected_fields` for **`es`**, **`pt`**, **`fr`**. Adds lost child, heat exhaustion, crowd push at gate, theft, transit disruption, security perimeter breach, tourist help, lost-and-found pickup, counterfeit ticket dispute.
+- **`lib/server/responders-mock-data.ts`**: 3 → **12** mock responders, including the previously missing **`event_staff`** units (`EVS-1..4`) anchored at BMO Field, fan zones, and the transit hub; extra EMS / police / fire units for richer surge analyze + responder_lookup output.
+- **`supabase/migrations/20260509200000_seed_event_layers.sql`** _(new)_ — idempotently seeds `public.event_layers` with the **16 World Cup layers** from **`lib/mock/worldCupLayers.ts`** (stadium perimeter, fan zones, restricted vehicle zone, crowd density polygons, medical / police / security / lost & found / tourist help / transit nodes, road closures) plus **5 disaster layers** (critical + urgent impact-zone polygons sized to the new 29-seed jitter envelope, two blocked roads — Bay St + Lakeshore @ Strachan — and the Exhibition responder staging area). Adds an **anon SELECT** policy on `event_layers` (PG 15-safe via `pg_policies` guard) so dashboard overlays and `event_zone_lookup` can read seeded rows.
+- **`lib/db/mappers.ts`**: new **`mapEventLayerRow`** (jsonb → `EventLayer`).
+- **`lib/db/call-repository.ts`** — **`repositorySimulateWorldCup`** now reads seeded layers from Supabase via the existing **`listEventLayerRecordsForMode("world_cup")`** helper and returns them in the response (was a hard-coded `[]`). With no Supabase env, it still falls back to `[]`, so the in-memory `repositorySimulateWorldCup` vitest case continues to pass unchanged.
+
+### Dev tooling / dependencies — vitest + zod pinned (`project_plan` §139–§151)
+
+- **`package.json`**: pinned **`zod ^4.4.3`** as a direct **`dependency`** (was used by validation code but missing from the manifest, so clean installs would fail) and **`vitest ^2.1.9`** as a **`devDependency`** for the existing `lib/**/*.test.ts` suites; added **`test`**, **`test:run`**, and **`typecheck`** scripts.
+- **`vitest.config.ts`** _(new)_: `environment: "node"`, `include: ["lib/**/*.test.ts"]`, `@/*` path alias matching `tsconfig.json`.
+
 ### Dev voice-sim hydration (`/dev/voice-sim`)
 
 - **`components/dev/VoiceSimSimulators.tsx`**: parent **`clientMounted`** gate so child simulators avoid SSR/client **`disabled`** mismatches without per-component **`mounted`** state.
@@ -350,4 +365,4 @@ Mock triage agent and schema validation unchanged in spirit; repository final-tu
 
 ---
 
-_Last updated: **Transcript Realtime + `transcript_events` seeding** (`call-repository` + **`LiveTranscriptPanel`**), **AI `say_to_caller` transcript rows** after final triage, **simulate–map geometry** (`simulate-seed-geometry` / **`EVENT_ZONES`** / **`disasterLayers`**), **dashboard personas** + **tabbed drawer** + **cluster fly-to**, **`VoiceSimSimulators`** hydration, disaster simulate **`maxCap: 100`** / default batch **50**, direct **`mapbox-gl`** dependency._
+_Last updated: **Disaster + World Cup seed expansion** (29 disaster scenarios, 13 multilingual world-cup scenarios, +9 mock responders incl. `event_staff`), **`event_layers` SQL seed migration** (16 world_cup + 5 disaster layers) wired into **`repositorySimulateWorldCup`** via **`mapEventLayerRow`**, **`vitest` + `zod` pinned in `package.json`** with new `test` / `test:run` / `typecheck` scripts and `vitest.config.ts`. Previously: Transcript Realtime + `transcript_events` seeding, AI `say_to_caller` transcript rows after final triage, simulate–map geometry (`simulate-seed-geometry` / `EVENT_ZONES` / `disasterLayers`), dashboard personas + tabbed drawer + cluster fly-to, `VoiceSimSimulators` hydration, disaster simulate `maxCap: 100` / default batch 50, direct `mapbox-gl` dependency._
