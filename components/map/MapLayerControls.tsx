@@ -29,15 +29,16 @@ const buildLayerGroups = (mode: AppMode | "all"): LayerGroup[] => {
   const groups: LayerGroup[] = [
     {
       title: "Core",
-      layerIds: ["incidents", "responders"],
+      description: "Incidents, responders, and derived cluster markers",
+      layerIds: ["incidents", "responders", "clusters"],
     },
   ];
 
   if (showDisasterStack) {
     groups.push({
       title: "Disaster",
-      description: "Surge overlays (disaster, World Cup, or all modes)",
-      layerIds: ["heatmap", "clusters", "disasterZones", "blockedRoads"],
+      description: "Heatmap, impact zones, blocked roads (disaster, World Cup, or all modes)",
+      layerIds: ["heatmap", "disasterZones", "blockedRoads"],
     });
   }
 
