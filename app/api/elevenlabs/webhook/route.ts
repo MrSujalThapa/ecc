@@ -29,7 +29,67 @@
 
 import { NextResponse } from "next/server";
 import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
-import { generateVoiceReplyViaGemma } from "@/lib/ai/providers/gemmaClient";
+
+// ---------------------------------------------------------------------------
+// Featherless voice reply — OpenAI-compatible, used when FEATHERLESS_API_KEY is set
+// ---------------------------------------------------------------------------
+const VOICE_SYSTEM_PROMPT = `You are a live emergency dispatch AI. A caller is on the phone right now.
+Given the conversation so far, reply with ONE short sentence spoken to the caller.
+Rules:
+- 1-2 sentences maximum. Calm, clear, direct.
+- If you don't know their location yet, ask for it.
+- Fire or smoke: tell them to evacuate if safe, say help is coming.
+- Break-in or intruder: tell them to stay hidden, help is coming.
+- Medical emergency: tell them not to move the person, help is coming.
+- Non-emergency: acknowledge and ask for their location.
+- Unknown: ask one short clarifying question.
+- Never repeat a question you already asked.
+- Reply with ONLY the spoken sentence. No JSON, no labels, no explanation.`.trim();
+
+const generateVoiceReplyViaFeatherless = async (
+  history: string[],
+  latestText: string
+): Promise<string> => {
+  const key = process.env.FEATHERLESS_API_KEY?.trim();
+  const model = process.env.FEATHERLESS_MODEL?.trim() ?? "google/gemma-3-4b-it";
+  const base = process.env.FEATHERLESS_BASE_URL?.trim() ?? "https://api.featherless.ai/v1";
+  if (!key) throw new Error("FEATHERLESS_API_KEY not set");
+
+  const historyLines = history.length > 0
+    ? `Previous caller messages:\n${history.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n`
+    : "";
+  const userMessage = `${historyLines}Latest caller message: "${latestText}"\n\nWhat do you say to the caller?`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: VOICE_SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        max_tokens: 80,
+        temperature: 0.1,
+      }),
+      signal: controller.signal,
+    });
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+    if (!response.ok) throw new Error(payload.error?.message ?? `Featherless HTTP ${response.status}`);
+    const text = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    if (!text) throw new Error("Featherless returned empty response");
+    return text;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("Featherless voice request timed out");
+    if (error instanceof Error) throw error;
+    throw new Error("Featherless voice request failed");
+  } finally {
+    clearTimeout(timer);
+  }
+};
 import {
   parseElevenLabsEvent,
   verifyElevenLabsSignature,
@@ -282,10 +342,10 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     }
 
     // ---------------------------------------------------------------------------
-    // Voice AI: call Gemma with a 4-second hard timeout.
-    // gemma-4-26b-a4b-it can take 10-15s on Google AI Studio — far too slow for
-    // ElevenLabs (which retries at ~5s). If Gemma doesn't respond in time, the
-    // context-aware fallback below fires instantly using the full conversation.
+    // Voice AI: call Featherless with an 8-second hard timeout.
+    // Featherless is OpenAI-compatible and typically faster than Google AI Studio.
+    // If Featherless doesn't respond in time, the context-aware fallback below
+    // fires instantly using the full conversation context.
     // ---------------------------------------------------------------------------
 
     // IBM Multilingual Incident Layer — translate final caller text to English before AI reasoning
@@ -327,19 +387,19 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     try {
       const transcriptHistory = substantiveUserMsgs.slice(0, -1);
 
-      // Direct lightweight Gemma call — minimal prompt, no tool catalog, no schema validation.
-      // No mock fallback. If Gemma fails or times out, voiceFallback fires below.
+      // Direct lightweight Featherless call — minimal prompt, no tool catalog, no schema validation.
+      // No mock fallback. If Featherless fails or times out, voiceFallback fires below.
       sayToCaller = await Promise.race([
-        generateVoiceReplyViaGemma(transcriptHistory, reasoningText),
+        generateVoiceReplyViaFeatherless(transcriptHistory, reasoningText),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("voice_timeout")), 4000)
+          setTimeout(() => reject(new Error("voice_timeout")), 8000)
         ),
       ]);
 
-      console.info(`[elevenlabs/webhook] Gemma voice reply (${sayToCaller.length} chars)`);
+      console.info(`[elevenlabs/webhook] Featherless voice reply (${sayToCaller.length} chars)`);
     } catch (e) {
       const reason = e instanceof Error ? e.message : "unknown";
-      console.warn(`[elevenlabs/webhook] Gemma ${reason === "voice_timeout" ? "timed out (>4s)" : `error: ${reason}`} — using context fallback`);
+      console.warn(`[elevenlabs/webhook] Featherless ${reason === "voice_timeout" ? "timed out (>8s)" : `error: ${reason}`} — using context fallback`);
       sayToCaller = voiceFallback(fullContext, turnNumber);
     }
 

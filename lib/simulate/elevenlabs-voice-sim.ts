@@ -71,7 +71,7 @@ export type VoiceSimCallerTurnInput = {
   incident_id: string;
   call_session_id: string;
   text: string;
-  /** STT “final” segment — triage runs only when true (see `repositoryCallTurn`). */
+  /** STT "final" segment — triage runs only when true (see `repositoryCallTurn`). */
   is_final?: boolean;
   speaker?: CallTurnRequest["speaker"];
 };
