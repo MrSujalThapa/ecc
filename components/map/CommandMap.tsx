@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { AppMode, Incident, Responder, SurgeCluster } from "@/lib/types";
@@ -205,16 +205,43 @@ export function CommandMap({
 
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-  const layerVisibility: MapLayerVisibility = {
-    ...defaultMapLayerVisibility,
-    ...Object.fromEntries(
-      disasterMapLayerIds.map((layerId) => [layerId, mode === "disaster"]),
-    ),
-    eventLayers: mode === "world_cup",
-    ...layerOverrides,
-  };
+  /** Disaster stack: off in normal only; on for disaster, world_cup, or queue "All modes". */
+  const disasterStackApplicable =
+    mode === "disaster" || mode === "world_cup" || mode === "all";
+  /** Event overlays: world_cup or queue "All modes". */
+  const eventLayersApplicable = mode === "world_cup" || mode === "all";
+
+  const layerVisibility: MapLayerVisibility = useMemo(() => {
+    const base: MapLayerVisibility = {
+      ...defaultMapLayerVisibility,
+      ...Object.fromEntries(
+        disasterMapLayerIds.map((layerId) => [
+          layerId,
+          disasterStackApplicable,
+        ]),
+      ),
+      eventLayers: eventLayersApplicable,
+    };
+    const merged: MapLayerVisibility = { ...base, ...layerOverrides };
+    if (!disasterStackApplicable) {
+      for (const id of disasterMapLayerIds) {
+        merged[id] = false;
+      }
+    }
+    if (!eventLayersApplicable) {
+      merged.eventLayers = false;
+    }
+    return merged;
+  }, [disasterStackApplicable, eventLayersApplicable, layerOverrides]);
 
   const toggleLayer = (layer: MapLayerId) => {
+    if (disasterMapLayerIds.includes(layer) && !disasterStackApplicable) {
+      return;
+    }
+    if (layer === "eventLayers" && !eventLayersApplicable) {
+      return;
+    }
+
     const nextValue = !layerVisibility[layer];
     if (layer === "clusters" && !nextValue) {
       onClearCluster();
@@ -379,9 +406,11 @@ export function CommandMap({
       return;
     }
 
-    setLayerOverrides((current) =>
-      current.clusters === true ? current : { ...current, clusters: true },
-    );
+    if (disasterStackApplicable) {
+      setLayerOverrides((current) =>
+        current.clusters === true ? current : { ...current, clusters: true },
+      );
+    }
 
     const cluster = clusters.find((c) => c.cluster_id === selectedClusterId);
     const center = cluster?.center;
@@ -398,7 +427,7 @@ export function CommandMap({
       duration: 700,
       essential: true,
     });
-  }, [clusters, mapReady, selectedClusterId]);
+  }, [clusters, disasterStackApplicable, mapReady, selectedClusterId]);
 
   if (!token) {
     return (
@@ -471,6 +500,7 @@ export function CommandMap({
       />
 
       <MapLayerControls
+        mode={mode}
         visibility={layerVisibility}
         onToggleLayer={toggleLayer}
       />
