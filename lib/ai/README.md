@@ -2,9 +2,7 @@
 
 Owned by Teammate 3. This folder holds the controlled AI agent pieces for the
 emergency operations platform. It currently supports a deterministic **mock**
-provider for fallback/testing and a temporary **Gemma** provider for current
-real-AI demo/testing. Featherless remains planned future support once
-subscription/API access is ready.
+provider for fallback/testing and **Featherless** as the real AI provider.
 
 No database writes happen here. No Twilio / ElevenLabs / Mapbox / Supabase
 calls happen here. Backend owns persistence, audit logs, transfers, SMS,
@@ -16,13 +14,13 @@ decisions.
 ```
 lib/ai/
 ├── agents/
-│   ├── callTriageAgent.ts       # provider-aware runner (mock/gemma now)
+│   ├── callTriageAgent.ts       # provider-aware runner (mock/featherless)
 │   ├── mockCallTriageAgent.ts   # mock Call Triage Agent (deterministic)
 │   ├── runControlledAgent.ts    # extracts/parses/validates model JSON
 │   ├── surgeGeoOpsAgent.ts      # deterministic AI-side Surge / GeoOps helper
 │   └── types.ts                  # AgentMode, TranscriptLike, input shape
 ├── providers/
-│   └── gemmaClient.ts            # temporary real-AI provider client
+│   └── featherlessClient.ts      # real-AI provider client
 ├── prompts/
 │   ├── callTriageAgentV2Prompt.ts # draft future tool-agent triage prompt
 │   ├── callTriagePrompt.ts       # active v1 triage prompt
@@ -53,7 +51,7 @@ const result = await runCallTriageAgent({
   latestTranscript,        // string OR { text } OR { final_transcript }
   transcriptHistory,       // optional
   mode: "normal",          // "normal" | "disaster" | "world_cup"
-  provider: "gemma",       // "mock" | "gemma" | "featherless" later
+  provider: "featherless", // "mock" | "featherless"
 });
 
 // result is a validated TriageAgentOutput:
@@ -64,9 +62,8 @@ The provider-aware runner falls back to `mockCallTriageAgent` when:
 
 - `provider` is `"mock"`;
 - `AI_PROVIDER` is missing or unknown;
-- `AI_PROVIDER=gemma` but `GEMMA_API_KEY` is missing;
-- Gemma fails, times out, or returns invalid JSON;
-- `AI_PROVIDER=featherless` is selected before Featherless is implemented.
+- `AI_PROVIDER=featherless` but `FEATHERLESS_API_KEY` is missing;
+- Featherless fails, times out, or returns invalid JSON.
 
 You can still import the mock directly for deterministic local checks:
 
@@ -109,15 +106,7 @@ Mock fallback/testing:
 AI_PROVIDER=mock
 ```
 
-Current real AI testing/demo with Gemma:
-
-```env
-AI_PROVIDER=gemma
-GEMMA_API_KEY=your_real_key_here
-GEMMA_MODEL=gemma-4-26b-a4b-it
-```
-
-Future Featherless support:
+Current real AI testing/demo with Featherless:
 
 ```env
 AI_PROVIDER=featherless
@@ -125,9 +114,21 @@ FEATHERLESS_API_KEY=your_real_key_here
 FEATHERLESS_MODEL=model_name_here
 ```
 
-Gemma is the current temporary real-AI provider. Featherless will be added
-later when subscription/API access is ready. If Gemma fails or the key is
+Featherless is the real-AI provider. If Featherless fails or the key is
 missing, `runCallTriageAgent` falls back to mock AI.
+
+## Live voice state memory
+
+The live voice path must pass `transcriptHistory` plus the current `Incident`
+and `CallSession` into `runCallTriageAgent` on every final caller turn. If a
+voice integration bypasses `runCallTriageAgent`, it must still include that
+same state memory context in the provider prompt so known details are preserved
+across turns.
+
+The agent prompt requires providers to preserve known `urgency`,
+`incident_type`, `location`, `description`, `collected_fields`, and
+`missing_fields`. It must not ask for details already present in
+`transcriptHistory`, the current incident, or the current call session.
 
 ## Mock examples — sanity check the wiring
 
@@ -217,7 +218,7 @@ draft prompts for the future V2/tool-agent mode.
 
 The current v1 runtime still uses `prompts/callTriagePrompt.ts`. These new
 prompts are not wired into `/api/call/turn` yet and do not change the current
-mock/Gemma fallback flow.
+mock/Featherless fallback flow.
 
 The V2 prompt drafts describe how AI can request safe backend tools, but tool
 execution is backend-owned. Member 3 owns the prompt and schema side. Member
@@ -249,7 +250,7 @@ many active incidents. It currently uses deterministic safe behavior only:
 grouping incidents, ranking critical/urgent incidents, summarizing clusters,
 and validating the result with `surgeGeoOpsAgentOutputSchema`.
 
-It does not call Gemma or Featherless yet. It does not execute tools, call
+It does not call Featherless yet. It does not execute tools, call
 Mapbox, call Supabase, mutate the database, or touch dashboard state. Backend
 must wire it later through `/api/surge/analyze` or another controlled endpoint.
 
@@ -277,14 +278,15 @@ automatically.
 - Wire `runCallTriageAgent` into `/api/call/turn` so transcript turns flow
   through the selected provider and the validated patch is merged into Supabase.
 - Use `provider: process.env.AI_PROVIDER` so demo/local environments can switch
-  between mock, Gemma, and future Featherless support.
+  between mock and Featherless.
 - Keep treating `tool_requests` and `system_actions` as proposals; backend
   is the only component that executes transfers, SMS, geocoding, etc.
 
 ## What this folder must NOT do
 
 - No direct database writes (no Supabase calls).
-- No Twilio / ElevenLabs / Mapbox / Featherless calls (yet).
+- No Twilio / ElevenLabs / Mapbox calls. Featherless calls stay inside the
+  controlled provider client.
 - Only read provider config from `process.env`; do not edit env files.
 - No installing new packages without team approval.
 - No modifying API routes, dashboard, map, or DB helpers.

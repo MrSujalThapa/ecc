@@ -10,6 +10,12 @@ export type AgenticTriageExample = {
   expectedDecision: AgentDecision;
   expectedToolRequests: ToolRequest[];
   notes: string;
+  transcriptHistory?: string[];
+  currentIncident?: Record<string, unknown>;
+  currentCallSession?: Record<string, unknown>;
+  expectedIncidentPatch?: Record<string, unknown>;
+  expectedCallSessionPatch?: Record<string, unknown>;
+  expectedCallerResponse?: string;
 };
 
 export const agenticTriageExamples: AgenticTriageExample[] = [
@@ -47,6 +53,140 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
     expectedToolRequests: [],
     notes:
       "Critical emergency without exact location. The agent should ask exact location once before tool lookup or escalation handoff.",
+  },
+  {
+    id: "agentic-child-kidnapping-turn-1",
+    name: "Child kidnapping reported, location missing",
+    mode: "normal",
+    latestTranscript: "Someone kidnapped my child.",
+    languageHint: null,
+    expectedDecision: "ask_location_then_escalate",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "critical",
+      incident_type: "kidnapping",
+      operator_required: true,
+      missing_fields: ["exact_location"],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: true,
+      next_question: "What is your exact location?",
+    },
+    expectedCallerResponse: "What is your exact location?",
+    notes:
+      "Kidnapping or child-taken language is critical and operator-required. With no usable location, ask only for exact location and do not ask what happened again.",
+  },
+  {
+    id: "agentic-child-kidnapping-turn-2-location",
+    name: "Child kidnapping location provided",
+    mode: "normal",
+    latestTranscript: "110 University Ave, Waterloo.",
+    languageHint: null,
+    transcriptHistory: [
+      "AI: Tell me the emergency.",
+      "Caller: Someone kidnapped my child.",
+      "AI: What is your exact location?",
+    ],
+    currentIncident: {
+      urgency: "critical",
+      incident_type: "kidnapping",
+      operator_required: true,
+      missing_fields: ["exact_location", "child_description"],
+    },
+    currentCallSession: {
+      should_escalate: true,
+      next_question: "What is your exact location?",
+    },
+    expectedDecision: "escalate_to_operator",
+    expectedToolRequests: [
+      {
+        id: "tr-child-kidnapping-university-geocode",
+        tool: "geocode_location",
+        args: {
+          location_text: "110 University Ave, Waterloo",
+          city_context: "Waterloo",
+          country_context: "Canada",
+        },
+        reason:
+          "Caller provided a specific address that should be geocoded and preserved.",
+        safety_level: "read_only",
+      },
+    ],
+    expectedIncidentPatch: {
+      urgency: "critical",
+      incident_type: "kidnapping",
+      operator_required: true,
+      location: "110 University Ave, Waterloo",
+      missing_fields: [
+        "child_description",
+        "suspect_description",
+        "direction_of_travel",
+        "vehicle_info",
+        "last_seen_time",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: true,
+      next_question:
+        "Can you describe your child and anyone who took them?",
+    },
+    expectedCallerResponse:
+      "Can you describe your child and anyone who took them?",
+    notes:
+      "The agent must preserve critical/kidnapping state, request geocoding for the specific address, and ask for child/suspect description instead of repeating location or what happened.",
+  },
+  {
+    id: "agentic-child-kidnapping-turn-3-description",
+    name: "Child kidnapping description provided",
+    mode: "normal",
+    latestTranscript:
+      "She is six, wearing a yellow jacket. A man in a black hoodie took her toward a blue van.",
+    languageHint: null,
+    transcriptHistory: [
+      "AI: Tell me the emergency.",
+      "Caller: Someone kidnapped my child.",
+      "AI: What is your exact location?",
+      "Caller: 110 University Ave, Waterloo.",
+      "AI: Can you describe your child and anyone who took them?",
+    ],
+    currentIncident: {
+      urgency: "critical",
+      incident_type: "kidnapping",
+      operator_required: true,
+      location: "110 University Ave, Waterloo",
+      summary:
+        "Caller reports their child was kidnapped at 110 University Ave, Waterloo.",
+      missing_fields: [
+        "child_description",
+        "suspect_description",
+        "direction_of_travel",
+        "vehicle_info",
+        "last_seen_time",
+      ],
+    },
+    currentCallSession: {
+      should_escalate: true,
+      next_question:
+        "Can you describe your child and anyone who took them?",
+    },
+    expectedDecision: "escalate_to_operator",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "critical",
+      incident_type: "kidnapping",
+      operator_required: true,
+      location: "110 University Ave, Waterloo",
+      description:
+        "Child is six and wearing a yellow jacket. Suspect is a man in a black hoodie moving toward a blue van.",
+      missing_fields: ["last_seen_time"],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: true,
+      next_question: "I am connecting you to an operator now.",
+    },
+    expectedCallerResponse: "I am connecting you to an operator now.",
+    notes:
+      "After description details are collected, do not ask for location or what happened again. Escalate/transfer or ask only for a remaining high-value detail such as last seen time.",
   },
   {
     id: "agentic-medical-collapse-gate-3",
