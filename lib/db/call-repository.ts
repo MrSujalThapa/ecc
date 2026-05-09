@@ -268,7 +268,7 @@ export const repositoryListIncidentsForDev = async (
   const { data, error } = await client
     .from("incidents")
     .select("*")
-    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(cap);
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => mapIncidentRow(r as Record<string, unknown>));

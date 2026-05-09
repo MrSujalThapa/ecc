@@ -91,11 +91,15 @@ export const createCallSessionForIncident = (
 export const getIncident = (id: string): Incident | undefined =>
   state.incidents.get(id);
 
-/** Newest first — used by dev operator sim and `/api/dev/incidents`. */
+/** Newest `created_at` first — used by dev operator sim and `/api/dev/incidents`. */
 export const listAllIncidentsSorted = (): Incident[] =>
-  [...state.incidents.values()].sort((a, b) =>
-    a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0
-  );
+  [...state.incidents.values()].sort((a, b) => {
+    const ac = a.created_at ?? "";
+    const bc = b.created_at ?? "";
+    if (ac < bc) return 1;
+    if (ac > bc) return -1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 
 export const getCallSession = (id: string): CallSession | undefined =>
   state.callSessions.get(id);
