@@ -3,10 +3,12 @@ import type {
   SystemAction,
   TriageAgentOutput,
 } from "@/lib/ai/schemas/triageAgentOutputSchema";
+import { runSurgeGeoOpsAgent } from "@/lib/ai/agents/surgeGeoOpsAgent";
 import {
   runCallTriageAgentWithProvenance,
   type CallTriageAgentProvider,
 } from "@/lib/ai/agents/callTriageAgent";
+import type { SurgeCluster as GeoOpsSurgeCluster } from "@/lib/ai/schemas/surgeGeoOpsAgentOutputSchema";
 import { executeAllowedToolRequests } from "@/lib/ai/executeAllowedToolRequests";
 import type {
   GeocodeLocationData,
@@ -34,7 +36,12 @@ import {
 } from "@/lib/server/demo-store";
 import { isoNow } from "@/lib/server/iso-now";
 import { newId } from "@/lib/server/ids";
+import { getMockResponders } from "@/lib/server/responders-mock-data";
 import { mergeSimulatedSurgeRow } from "@/lib/server/simulate-seed-enrichment";
+import {
+  buildSurgeGeoOpsAgentInput,
+  priorityScoreFromSurgeRank,
+} from "@/lib/surge/buildSurgeGeoOpsAgentInput";
 import { getServiceRoleClient } from "@/lib/supabase/service";
 import type {
   CallEndRequest,
@@ -47,9 +54,16 @@ import type {
   OperatorUpdateIncidentRequest,
   SimulateDisasterResponse,
   SimulateWorldCupResponse,
+  SurgeAnalyzeRequest,
+  SurgeAnalyzeResponse,
   TriageTrace,
 } from "@/lib/types/api";
-import type { CallSession, Incident, TranscriptEvent } from "@/lib/types/domain";
+import type {
+  CallSession,
+  Incident,
+  SurgeCluster,
+  TranscriptEvent,
+} from "@/lib/types/domain";
 import type { AppMode, OperatorTransferStatus } from "@/lib/types/enums";
 import type { Json } from "@/lib/types/json";
 import { callSessionToDb, newCallSessionInsertRow } from "./call-session-row";
@@ -1151,4 +1165,135 @@ export const repositoryOperatorSendSms = async (
     patch: { message: parsed.message },
   });
   return { incident_id: parsed.incident_id, sent: false };
+};
+
+const mapGeoOpsClustersToDomain = (
+  clusters: readonly GeoOpsSurgeCluster[]
+): SurgeCluster[] =>
+  clusters.map((c) => ({
+    cluster_id: c.id,
+    title: c.title,
+    incident_count: c.incident_count,
+    urgency_breakdown: { ...c.urgency_breakdown },
+    summary: c.summary,
+    top_recommended_action: c.top_recommended_action,
+    incident_ids: [...c.incident_ids],
+    center: { ...c.center },
+  }));
+
+const listEventLayerRecordsForMode = async (
+  mode: "disaster" | "world_cup"
+): Promise<Array<Record<string, unknown>>> => {
+  const client = getServiceRoleClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("event_layers")
+    .select("*")
+    .eq("mode", mode)
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Array<Record<string, unknown>>;
+};
+
+/**
+ * Runs deterministic Surge / GeoOps clustering over active incidents for the
+ * requested mode, persists `cluster_id` on matching rows, and returns API-shaped
+ * clusters plus updated incidents (`docs/api_contracts.md` §4.11).
+ */
+export const repositorySurgeAnalyze = async (
+  parsed: SurgeAnalyzeRequest
+): Promise<SurgeAnalyzeResponse> => {
+  const client = getServiceRoleClient();
+  const all = await repositoryListIncidentsForDev(200);
+  const cohort = all.filter(
+    (i) =>
+      i.mode === parsed.mode &&
+      i.status !== "resolved" &&
+      i.status !== "abandoned"
+  );
+
+  const respondersRecords =
+    parsed.include_responders === true
+      ? getMockResponders().map((r) => ({ ...r }) as Record<string, unknown>)
+      : undefined;
+  const eventLayerRecords =
+    parsed.include_event_layers === true
+      ? await listEventLayerRecordsForMode(parsed.mode)
+      : undefined;
+
+  const geoInput = buildSurgeGeoOpsAgentInput({
+    parsed,
+    cohort,
+    respondersRecords,
+    eventLayerRecords,
+  });
+
+  const geoOut = await runSurgeGeoOpsAgent(geoInput);
+
+  const clusters = mapGeoOpsClustersToDomain(geoOut.clusters);
+  const incidentToCluster = new Map<string, string>();
+  for (const c of geoOut.clusters) {
+    for (const id of c.incident_ids) {
+      incidentToCluster.set(id, c.id);
+    }
+  }
+
+  const t = isoNow();
+  const updated_incidents: Incident[] = [];
+
+  for (const incident of cohort) {
+    const cluster_id = incidentToCluster.get(incident.id) ?? null;
+    const ranked = priorityScoreFromSurgeRank(
+      incident.id,
+      geoOut.top_priority_incident_ids
+    );
+    const next: Incident = {
+      ...incident,
+      cluster_id,
+      priority_score: ranked ?? incident.priority_score,
+      updated_at: t,
+      last_updated_by: "system:surge_analyze",
+    };
+
+    if (!client) {
+      saveIncident(next);
+    } else {
+      const { error } = await client
+        .from("incidents")
+        .update(incidentToDb(next))
+        .eq("id", incident.id);
+      if (error) throw new Error(error.message);
+    }
+    updated_incidents.push(next);
+  }
+
+  if (!client) {
+    newAuditLog({
+      incident_id: null,
+      actor: "api",
+      action: "surge_analyze",
+      patch: {
+        mode: parsed.mode,
+        cluster_count: clusters.length,
+        cohort_size: cohort.length,
+      } as Json,
+    });
+  } else {
+    await insertAudit(client, {
+      incident_id: null,
+      actor: "api",
+      action: "surge_analyze",
+      patch: {
+        mode: parsed.mode,
+        cluster_count: clusters.length,
+        cohort_size: cohort.length,
+      } as Json,
+    });
+  }
+
+  return {
+    clusters,
+    updated_incidents,
+    top_priority_incident_ids: geoOut.top_priority_incident_ids,
+  };
 };

@@ -8,6 +8,7 @@ import {
   operatorTakeoverRequestSchema,
   operatorUpdateIncidentRequestSchema,
   simulateBatchRequestSchema,
+  surgeAnalyzeRequestSchema,
   triagePreviewRequestSchema,
 } from "./api-requests";
 
@@ -166,6 +167,29 @@ describe("simulateBatchRequestSchema", () => {
       expect(r.data.batch_size).toBe(0);
       expect(r.data.reset_existing).toBe(true);
     }
+  });
+});
+
+describe("surgeAnalyzeRequestSchema", () => {
+  it("requires mode disaster or world_cup", () => {
+    expect(surgeAnalyzeRequestSchema.safeParse({ mode: "disaster" }).success).toBe(
+      true
+    );
+    expect(surgeAnalyzeRequestSchema.safeParse({ mode: "world_cup" }).success).toBe(
+      true
+    );
+    expect(surgeAnalyzeRequestSchema.safeParse({ mode: "normal" }).success).toBe(
+      false
+    );
+  });
+
+  it("accepts optional flags", () => {
+    const r = surgeAnalyzeRequestSchema.safeParse({
+      mode: "disaster",
+      include_responders: true,
+      include_event_layers: false,
+    });
+    expect(r.success).toBe(true);
   });
 });
 

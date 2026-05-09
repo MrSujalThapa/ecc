@@ -28,13 +28,43 @@ describe("runCallTriageAgent", () => {
     expect(out.incident_patch.incident_type).toBe("bike_theft");
   });
 
-  it("featherless maps to mock", async () => {
+  it("featherless without API key falls back to mock", async () => {
     vi.stubEnv("AI_PROVIDER", "featherless");
+    vi.stubEnv("FEATHERLESS_API_KEY", "");
     const out = await runCallTriageAgent({
       latestTranscript: "Someone stole my bike.",
       mode: "normal",
     });
     expect(out.incident_patch.incident_type).toBe("bike_theft");
+  });
+
+  it("featherless uses API when key, model set and response validates", async () => {
+    vi.stubEnv("AI_PROVIDER", "featherless");
+    vi.stubEnv("FEATHERLESS_API_KEY", "test-key");
+    vi.stubEnv("FEATHERLESS_MODEL", "test-model");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: { content: JSON.stringify(minimalValidJson) },
+            },
+          ],
+        }),
+      })
+    );
+
+    const out = await runCallTriageAgent({
+      latestTranscript: "anything",
+      mode: "normal",
+    });
+
+    expect(out.incident_patch.incident_type).toBe("test_case");
+    expect(out.say_to_caller).toBe("What happened?");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("gemma without API key falls back to mock", async () => {
@@ -111,6 +141,67 @@ describe("runCallTriageAgentWithProvenance", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("falls back to mock with provider_error when featherless key missing", async () => {
+    vi.stubEnv("AI_PROVIDER", "featherless");
+    vi.stubEnv("FEATHERLESS_API_KEY", "");
+    const result = await runCallTriageAgentWithProvenance({
+      latestTranscript: "Someone stole my bike.",
+      mode: "normal",
+    });
+    expect(result.requested_provider).toBe("featherless");
+    expect(result.used_provider).toBe("mock");
+    expect(result.provider_error).toMatch(/FEATHERLESS_API_KEY/);
+  });
+
+  it("falls back to mock with provider_error when featherless model missing", async () => {
+    vi.stubEnv("AI_PROVIDER", "featherless");
+    vi.stubEnv("FEATHERLESS_API_KEY", "k");
+    vi.stubEnv("FEATHERLESS_MODEL", "");
+    const result = await runCallTriageAgentWithProvenance({
+      latestTranscript: "Someone stole my bike.",
+      mode: "normal",
+    });
+    expect(result.requested_provider).toBe("featherless");
+    expect(result.used_provider).toBe("mock");
+    expect(result.provider_error).toMatch(/FEATHERLESS_MODEL/);
+  });
+
+  it("reports used_provider=featherless when fetch succeeds with valid JSON", async () => {
+    vi.stubEnv("AI_PROVIDER", "featherless");
+    vi.stubEnv("FEATHERLESS_API_KEY", "test-key");
+    vi.stubEnv("FEATHERLESS_MODEL", "m");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  tool_requests: [],
+                  incident_patch: {
+                    urgency: "non_emergency",
+                    incident_type: "test",
+                  },
+                  call_session_patch: { next_question: "?" },
+                  system_actions: [],
+                  say_to_caller: "?",
+                }),
+              },
+            },
+          ],
+        }),
+      })
+    );
+    const result = await runCallTriageAgentWithProvenance({
+      latestTranscript: "anything",
+      mode: "normal",
+    });
+    expect(result.used_provider).toBe("featherless");
+    expect(result.provider_error).toBeNull();
   });
 
   it("reports used_provider=mock without provider_error when provider=mock", async () => {

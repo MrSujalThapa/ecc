@@ -99,6 +99,12 @@ export const simulateBatchRequestSchema = z.object({
   reset_existing: z.boolean().optional(),
 });
 
+export const surgeAnalyzeRequestSchema = z.object({
+  mode: z.enum(["disaster", "world_cup"]),
+  include_responders: z.boolean().optional(),
+  include_event_layers: z.boolean().optional(),
+});
+
 /** Dev-only: dry-run triage (`runCallTriageAgent`) without persisting transcript or patches. */
 export const triagePreviewRequestSchema = z.object({
   latest_transcript: z.string().min(1),
