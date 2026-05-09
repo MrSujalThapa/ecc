@@ -10,26 +10,26 @@ This note tracks **`lib/`**, **`app/api/*`**, **`app/dev/*`**, persistence (Supa
 
 ## Role checklist (`project_details` §19 / `project_plan` §73–§100)
 
-| Responsibility | Status | Where / notes |
-|----------------|--------|----------------|
-| Repository structure | **Advanced** | `lib/types`, `lib/server`, `lib/supabase`, `lib/ai`, `lib/validation`, **`lib/db/*`**, **`lib/tools/*`**, **`lib/surge/*`** (GeoOps input builder for **`/api/surge/analyze`**). `lib/voice/*` exists for webhooks. |
-| Shared types | **Done** | `lib/types/` — domain in `domain.ts`; **`lib/types/api.ts`** aligned with **`docs/api_contracts.md`** (call start/turn/end, operator, simulate, responders). |
-| Dashboard shell | **Partial** | **`/dashboard`** (`app/dashboard/page.tsx` + `DashboardShell`): incident list from **`GET /api/dev/incidents`** via **`lib/data/apiIncidentDataSource.ts`**, optional **Supabase Realtime** on `public.incidents` (`lib/data/dashboardIncidentFeed.ts`), queue + drawer + **`DemoControls`** (simulate batch + `reset_existing`), **`CommandMap`** with Mapbox when **`NEXT_PUBLIC_MAPBOX_TOKEN`** is set or **`CommandMapOffline`** otherwise, drawer **`IncidentDrawerActions`** → **`POST /api/operator/*`** via **`lib/data/dashboardCommandApi.ts`**, call-session summary via **`GET /api/dev/call-sessions`**. **Still open vs plan:** map clusters / surge sync / full Step 11 Realtime on sessions & transcripts. |
-| Supabase client | **Done** | `lib/supabase/{env,server,client,middleware}.ts` + **`lib/supabase/service.ts`** (service-role server client, no session). Root `middleware.ts` where present. |
-| Migrations / schema | **Done (SQL)** | `supabase/migrations/*`; RLS on tables. **`20260507194500_anon_select_incidents_sessions_transcripts.sql`** adds **anon SELECT** on `incidents`, `call_sessions`, `transcript_events` for browser Realtime + read models (tighten before production). |
-| API persistence | **Dual path** | **`lib/db/call-repository.ts`**: uses **`getServiceRoleClient()`** when `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set; otherwise **`lib/server/demo-store.ts`** (RAM). |
-| Integration checks | **Partial** | **`npm run test` / `npm run test:run`** (Vitest on `lib/**/*.test.ts`). **Browser:** [`/dev/voice-sim`](../../app/dev/voice-sim/page.tsx) exercises `call/start` → `call/turn` → `call/end` without Postman. No Playwright/Cypress in repo yet. |
-| Deployment / CI | **Not done** | No GitHub Actions; `.env.example` documents env vars (including optional **`NEXT_PUBLIC_MAPBOX_TOKEN`** for the dashboard map). |
+| Responsibility       | Status         | Where / notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository structure | **Advanced**   | `lib/types`, `lib/server`, `lib/supabase`, `lib/ai`, `lib/validation`, **`lib/db/*`**, **`lib/tools/*`**, **`lib/surge/*`** (GeoOps input builder for **`/api/surge/analyze`**). `lib/voice/*` exists for webhooks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Shared types         | **Done**       | `lib/types/` — domain in `domain.ts`; **`lib/types/api.ts`** aligned with **`docs/api_contracts.md`** (call start/turn/end, operator, simulate, responders).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Dashboard shell      | **Partial**    | **`/dashboard`** (`app/dashboard/page.tsx` + `DashboardShell`): incident list from **`GET /api/dev/incidents`**, **Realtime** on `public.incidents`, **drawer tabs** (triage / operator / details / transcript) + **`LiveTranscriptPanel`** (`lib/data/supabaseTranscriptDataSource.ts` — fetch + **`transcript_events`** subscription when anon env allows), **persona** visibility (`lib/dashboard/dashboardPersona.ts`, **`DashboardPersonaContext`**), cluster **fly-to** on selection (**`CommandMap`**), incident → cluster via **`findSurgeClusterForIncident`**, **`DemoControls`** (disaster default batch **50**, route **`maxCap: 100`**). **Still open vs plan:** **`call_sessions`** Realtime, regional strategy / full surge–map sync, DoD polish (Member 4). |
+| Supabase client      | **Done**       | `lib/supabase/{env,server,client,middleware}.ts` + **`lib/supabase/service.ts`** (service-role server client, no session). Root `middleware.ts` where present.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Migrations / schema  | **Done (SQL)** | `supabase/migrations/*`; RLS on tables. **`20260507194500_anon_select_incidents_sessions_transcripts.sql`** adds **anon SELECT** on `incidents`, `call_sessions`, `transcript_events` for browser Realtime + read models (tighten before production).                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| API persistence      | **Dual path**  | **`lib/db/call-repository.ts`**: uses **`getServiceRoleClient()`** when `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set; otherwise **`lib/server/demo-store.ts`** (RAM).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Integration checks   | **Partial**    | **`npm run test` / `npm run test:run`** (Vitest on `lib/**/*.test.ts`). **Browser:** [`/dev/voice-sim`](../../app/dev/voice-sim/page.tsx) exercises `call/start` → `call/turn` → `call/end` without Postman. No Playwright/Cypress in repo yet.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Deployment / CI      | **Not done**   | No GitHub Actions; `.env.example` documents env vars (including optional **`NEXT_PUBLIC_MAPBOX_TOKEN`** for the dashboard map).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 
 ## Main Step 1 — contracts (`project_plan` §154–§172)
 
-| Substep | Doc expectation | Repo |
-|---------|-----------------|------|
-| 1.1 Shared TS types | `Incident`, `CallSession`, `TranscriptEvent`, `Responder`, `EventLayer`, modes/enums | **Met** in `lib/types/domain.ts`, `enums.ts`, `geo.ts`, `json.ts`. |
-| 1.2 API contracts | HTTP request/response shapes | **Met** in **`docs/api_contracts.md`** and **`lib/types/api.ts`** — e.g. `CallStartResponse` includes full `incident` + `call_session`; `CallTurnResponse` includes `transcript_event` and `actions: SystemAction[]`; `CallEndRequest` supports `reason` and legacy `outcome`; operator update/resolve/send-sms; simulate disaster/world-cup responses with `created_incidents` / `created_call_sessions`. |
-| 1.3 AI Zod schema | Triage output validated | **Met** in `lib/ai/schemas/triageAgentOutputSchema.ts`; exports used by API types include **`SystemAction`**, tool request types where wired. |
+| Substep             | Doc expectation                                                                      | Repo                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.1 Shared TS types | `Incident`, `CallSession`, `TranscriptEvent`, `Responder`, `EventLayer`, modes/enums | **Met** in `lib/types/domain.ts`, `enums.ts`, `geo.ts`, `json.ts`.                                                                                                                                                                                                                                                                                                                                         |
+| 1.2 API contracts   | HTTP request/response shapes                                                         | **Met** in **`docs/api_contracts.md`** and **`lib/types/api.ts`** — e.g. `CallStartResponse` includes full `incident` + `call_session`; `CallTurnResponse` includes `transcript_event` and `actions: SystemAction[]`; `CallEndRequest` supports `reason` and legacy `outcome`; operator update/resolve/send-sms; simulate disaster/world-cup responses with `created_incidents` / `created_call_sessions`. |
+| 1.3 AI Zod schema   | Triage output validated                                                              | **Met** in `lib/ai/schemas/triageAgentOutputSchema.ts`; exports used by API types include **`SystemAction`**, tool request types where wired.                                                                                                                                                                                                                                                              |
 
 **Contract freeze:** Changing `Incident` / `CallSession` / triage Zod / public API shapes still requires coordinated updates (mock agent, `merge-triage-output`, `call-repository`, routes, future UI).
 
@@ -37,11 +37,11 @@ This note tracks **`lib/`**, **`app/api/*`**, **`app/dev/*`**, persistence (Supa
 
 ## Main Step 2 — foundation (`project_plan` §174–§192)
 
-| Substep | Doc expectation | Status |
-|---------|-----------------|--------|
-| 2.1 App folders | `app/api`, `components`, `lib`, `supabase` | **`app/api`** (call, operator, simulate, responders, **dev**), **`app/dev`** (voice sim), **`components/`** (includes **`components/dev/`**), **`lib/`**, **`supabase/migrations`**; README varies. |
-| 2.2 Supabase integration | Client + migrations + read/write proof | **Service path:** inserts/updates/selects via **`lib/db/call-repository.ts`** when service role env is configured. **Fallback:** in-memory **`demo-store`** for local/demo without Supabase. **`app/page.tsx`** uses **server** Supabase client (anon) — separate from API persistence. |
-| 2.3 Dashboard shell | Dashboard route, regions, mock incidents (`project_plan` §188–§192) | **Partial:** **`/dashboard`** ships queue, map column (Mapbox or offline list), incident drawer with operator actions + API-backed call-session block, demo simulation strip, Realtime-driven refetch. **Remaining:** clusters/regions, mock-incident strategy per doc, full Mapbox polish (Member 4). **Minimal call-path UI** remains **`/dev/voice-sim`**. |
+| Substep                  | Doc expectation                                                     | Status                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1 App folders          | `app/api`, `components`, `lib`, `supabase`                          | **`app/api`** (call, operator, simulate, responders, **dev**), **`app/dev`** (voice sim), **`components/`** (includes **`components/dev/`**), **`lib/`**, **`supabase/migrations`**; README varies.                                                                                                                                                           |
+| 2.2 Supabase integration | Client + migrations + read/write proof                              | **Service path:** inserts/updates/selects via **`lib/db/call-repository.ts`** when service role env is configured. **Fallback:** in-memory **`demo-store`** for local/demo without Supabase. **`app/page.tsx`** uses **server** Supabase client (anon) — separate from API persistence.                                                                       |
+| 2.3 Dashboard shell      | Dashboard route, regions, mock incidents (`project_plan` §188–§192) | **Partial:** queue + Mapbox/offline map + **tabbed drawer** + operator API actions + **live transcript panel** + persona modes + **cluster navigation** from drawer/map. **Remaining:** regions / mock-incident strategy per doc, **`call_sessions`** Realtime, full Mapbox + surge UX polish. **Minimal call-path UI** remains **`/dev/voice-sim`**. |
 
 ---
 
@@ -71,7 +71,7 @@ This section summarizes what is **implemented now** vs **still missing**, mapped
 - **Main Step 12/13 — Simulation endpoints**
   - `POST /api/simulate/disaster`, `POST /api/simulate/world-cup`
   - **`reset_existing`** optional body flag (Zod + routes + repository): clears incidents (Supabase delete-all-in-table path or in-memory **`resetDemoStore`**) before seeding; **`batch_size: 0`** supported for “wipe only”.
-  - **`lib/server/simulate-seed-enrichment.ts`**: disaster / world-cup seeds get **Toronto-area `coordinates`** and richer scenario fields after each `repositoryCallStart` in the simulate loop (map pins + drawer copy).
+  - **`lib/server/simulate-seed-enrichment.ts`** + **`lib/mock/simulate-seed-geometry.ts`**: deterministic **Toronto-area pins** (disaster uses **per-scenario slot offsets** shared with **`EVENT_ZONES`** / map impact layers); seeds append **caller + AI** lines to **`call_session.recent_transcript`**; **disaster** batches assign the first simulated rows to **`DIS-SIM-OP-*`** so **`assigned_operator`** / **`human_active`** reflect operator load in the UI (**`mergeSimulatedSurgeRow`** batch options).
 - **Supporting endpoints / dev harness**
   - `GET /api/responders/mock`
   - Dev harness: `/dev/voice-sim` + `GET /api/dev/persistence`
@@ -79,17 +79,17 @@ This section summarizes what is **implemented now** vs **still missing**, mapped
   - **`GET /api/dev/call-sessions?incident_id=`** — lists `call_sessions` for one incident (dashboard drawer + debugging)
   - Dev-only triage dry-run: `POST /api/dev/triage-preview` (runs `runCallTriageAgent` with no DB writes)
 - **Main Step 11 — Realtime (partial)**
-  - **`/dashboard`** subscribes to **`public.incidents`** via Supabase Realtime (browser client) and **refetches** `GET /api/dev/incidents` on change.
-  - Requires **`NEXT_PUBLIC_SUPABASE_URL`** + **`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`** (or anon) **and** migration **`20260507194500_anon_select_incidents_sessions_transcripts.sql`** applied so anon can **SELECT** (Realtime uses the same permission model as PostgREST reads).
-  - Still missing: Realtime on **`call_sessions`** / optional **`transcript_events`** (drawer uses **`LiveTranscriptPanel`** when Supabase Realtime is enabled for that table), Map-driven cluster sync (full Step 11 scope).
+  - **`/dashboard`** subscribes to **`public.incidents`** via Supabase Realtime and **refetches** `GET /api/dev/incidents` on change.
+  - **`transcript_events`**: drawer **`LiveTranscriptPanel`** loads history + **`subscribeTranscriptEventsForIncident`** when **`lib/data/supabaseTranscriptDataSource`** reports the browser client is available (same anon **SELECT** + migration as incidents). **`repositoryCallTurn`** (final triage) appends the agent **`say_to_caller`** line as **`speaker: "ai"`** to **`transcript_events`** (Supabase + in-memory **`appendTranscriptEvent`**). Simulate seed enrichment calls **`persistSimulateSeedTranscriptEvents`** so seeded **`recent_transcript`** snippets become **`transcript_events`** rows for the dashboard.
+  - Still missing: Realtime on **`call_sessions`**; broader loading/error DoD; optional further transcript UX (audio **`incidents.audio_url`** deferred per **`project_details`** MVP notes — UI block commented in **`LiveTranscriptPanel`**).
 - **Main Step 14 — Surge / GeoOps (baseline, Member 1)**
   - **`POST /api/surge/analyze`**, **`lib/surge/buildSurgeGeoOpsAgentInput.ts`**, **`repositorySurgeAnalyze`**: validated **`runSurgeGeoOpsAgent`** output, persists **`cluster_id`** + rank-derived **`priority_score`**, audit log. **`GEOOPS_PROVIDER`** (fallback **`AI_PROVIDER`**) is passed into the agent for the next integration step.
 
 ### Not done yet (gaps vs docs)
 
-- **Main Step 2.3 / Steps 4–5 (remainder)**: map **clusters** / regions, surge-driven map behaviour, full Definition-of-Done polish for dashboard UX (baseline `/dashboard` + Mapbox/offline map + queue + drawer **is in repo**)
+- **Main Step 2.3 / Steps 4–5 (remainder)**: **regions** / mock-incident strategy, surge-driven map behaviour end-to-end, full DoD polish (baseline `/dashboard` + cluster UX + transcript panel **now in repo**)
 - **Main Step 10 (remainder)**: production hardening (e.g. Twilio signature verification), real SMS sending beyond operator stub — webhooks + **`lib/voice/*`** are in repo
-- **Main Step 11 (remainder)**: Realtime for **`call_sessions`** / **`transcript_events`**, Mapbox live sync polish, loading/error UX per Definition of Done
+- **Main Step 11 (remainder)**: Realtime for **`call_sessions`** only; Mapbox / cluster UX polish; loading/error DoD
 - **Main Step 14 (remainder)**: model + **tool loop** inside **`runSurgeGeoOpsAgent`**; dashboard / demo **calls** to **`/api/surge/analyze`** (**`project_plan`** §14.3 “surge intelligence” wiring)
 - **Main Step 15–17**: hardening, demo polish, deployment/CI
 - **`project_details` §11 diagram vs repo** — webhook routes and **`lib/voice/*`** exist (filenames may differ); DB helpers are mostly consolidated in **`lib/db/call-repository.ts`** rather than separate `incidents.ts` / `callSessions.ts`. Operator SMS remains a **stub**.
@@ -168,7 +168,33 @@ This consolidates the “integration notes” into this Member 1 status doc so t
 - **`components/dashboard/DemoControls.tsx`**: dashboard-only buttons for disaster / world-cup simulate + clear-all (reset + empty batch).
 - **`components/map/CommandMapOffline.tsx`**: selectable incident list when Mapbox token absent.
 - **`components/incidents/IncidentDrawerActions.tsx`**: operator buttons wired to **`dashboardCommandApi`** + **`lib/simulate/operator-flow-sim.ts`** request builders.
-- **`components/incidents/IncidentDrawer.tsx`**: **`activeCallSession`** block when **`GET /api/dev/call-sessions`** returns rows; renders **`IncidentDrawerActions`** when **`onAfterCommand`** provided.
+- **`components/incidents/IncidentDrawer.tsx`**: tabbed **triage / operator / details / transcript** (ARIA tablist); **`activeCallSession`** + operator actions on **Operator** tab; **`LiveTranscriptPanel`** on **Transcript** tab; **cluster** jump from **Details** when a map cluster contains the incident; visibility flags from **`useDashboardPersona`** (hide internal IDs, infra badges, demo strip for executive-style personas).
+- **`components/map/CommandMap.tsx`**: when a **cluster** is selected, **flyTo** its center (validates coordinates via **`isValidCoordinates`**); turns on cluster layer overlay as needed.
+- **`lib/map/clustering.ts`**: **`findSurgeClusterForIncident`** links **`SurgeCluster`** geometry to the selected **`Incident`**.
+
+### Dashboard persona + live transcript UX (`project_plan` Main Step 2.3, Step 11 overlap)
+
+- **`lib/dashboard/dashboardPersona.ts`**: persisted **`DashboardPersonaId`** (localStorage) + per-persona **`visibility`** flags (verbose feed banner, demo controls, operator load breakdown, transcript “infrastructure” / developer-only blocks, etc.).
+- **`components/dashboard/DashboardPersonaContext.tsx`** + **`DashboardShell`**: wraps the dashboard tree; **`TopBar`** exposes a **Persona** `<select>`; **`DemoControls`** / infra pills / **`OperatorLoadPanel`** breakdown respect visibility.
+- **`components/voice/LiveTranscriptPanel.tsx`**: initial fetch + **Realtime** on **`transcript_events`** when available; **Export .txt** of loaded lines; optional **`transcript_url`** link gated to developer persona; **`audio_url`** block left commented pending **`project_details`** recording strategy.
+- **`components/voice/CallControlPanel.tsx`**: takeover success copy matches **`repositoryOperatorTakeover`** semantics (human active, session closed).
+
+### Simulate seeds ↔ `transcript_events` + disaster geometry (`api_contracts` transcript shape, `project_details` section 9.2)
+
+- **`mergeSimulatedSurgeRow`** (`simulate-seed-enrichment.ts`): builds **`recent_transcript`** snippets (caller scenario text + AI **`next_question`**); disaster **batch-local index** drives **`DIS-SIM-OP-*`** assignment for the first N rows in a batch.
+- **`persistSimulateSeedTranscriptEvents`** in **`call-repository.ts`**: inserts new **`transcript_events`** for Supabase; in-memory path uses **`appendSeedTranscriptEvents`** in **`demo-store.ts`** so **`LiveTranscriptPanel`** sees the same data without voice.
+- **`lib/mock/simulate-seed-geometry.ts`**: shared Toronto anchor, jitter, and **disaster impact zone bboxes** aligned with simulate pins and **`disasterSimImpactEventZoneSeeds`** in **`lib/tools/_mockGeo.ts`** (spread into **`EVENT_ZONES`**).
+- **`lib/mock/disasterLayers.ts`**: static Mapbox **`EventLayer`** lists derive from **`EVENT_ZONES`** (impact polygons + blocked roads) instead of hard-coded coordinates.
+- **`POST /api/simulate/disaster`**: route **`maxCap`** raised to **100**; **`DemoControls`** default disaster **`batch_size`** is **50**.
+
+### Dev voice-sim hydration (`/dev/voice-sim`)
+
+- **`components/dev/VoiceSimSimulators.tsx`**: parent **`clientMounted`** gate so child simulators avoid SSR/client **`disabled`** mismatches without per-component **`mounted`** state.
+- **`ElevenLabsVoiceSimulator`** / **`OperatorFlowSimulator`**: dropped local **`mounted`**; operator sim defers first refresh with **`setTimeout(..., 0)`** after persistence probe.
+
+### Dependencies
+
+- **`mapbox-gl`** added as a **direct** `package.json` dependency (Mapbox GL runtime for **`CommandMap`**).
 
 ### Debugging support
 
@@ -178,11 +204,11 @@ This consolidates the “integration notes” into this Member 1 status doc so t
 
 ## `lib/db/*` — persistence layer (new / expanded)
 
-| File | Role |
-|------|------|
-| **`call-repository.ts`** | Orchestrates `repositoryCallStart`, `repositoryCallTurn`, `repositoryCallEnd`, `repositoryOperatorTakeover`, `repositoryOperatorUpdateIncident`, `repositoryOperatorResolve`, `repositoryOperatorSendSms` (stub), `repositorySimulateDisaster`, `repositorySimulateWorldCup`, **`repositoryListIncidentsForDev`**, **`repositoryListCallSessionsForDev`**. Memory vs Supabase branches; audit hooks on Supabase. |
-| **`mappers.ts`** | `mapIncidentRow`, `mapCallSessionRow`, `mapTranscriptRow` — PostgREST/jsonb → `lib/types/domain`. |
-| **`incident-row.ts`** / **`call-session-row.ts`** | `incidentToDb` / `callSessionToDb` and insert row builders for migrations column names. |
+| File                                              | Role                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`call-repository.ts`**                          | Orchestrates call / operator / simulate / dev-listing paths as before; adds **final-triage** **`say_to_caller`** → **`transcript_events`** (and in-memory **`appendTranscriptEvent`**); **`persistSimulateSeedTranscriptEvents`** after **`mergeSimulatedSurgeRow`** so simulate **`recent_transcript`** matches the **`transcript_events`** feed. |
+| **`mappers.ts`**                                  | `mapIncidentRow`, `mapCallSessionRow`, `mapTranscriptRow` — PostgREST/jsonb → `lib/types/domain`.                                                                                                                                                                                                                                                                                                                |
+| **`incident-row.ts`** / **`call-session-row.ts`** | `incidentToDb` / `callSessionToDb` and insert row builders for migrations column names.                                                                                                                                                                                                                                                                                                                          |
 
 Routes **`app/api/**/route.ts`** import the repository (not `demo-store` directly) and map thrown errors via **`repositoryErrorResponse`** in **`lib/server/api-route-helpers.ts`** (`NOT_FOUND`, `SESSION_MISMATCH`, `SESSION_INACTIVE`, `SESSION_MISSING`).
 
@@ -192,23 +218,23 @@ Routes **`app/api/**/route.ts`** import the repository (not `demo-store` directl
 
 ## `app/api/*` route inventory
 
-| Method | Path | Handler notes |
-|--------|------|-----------------|
-| POST | `/api/call/start` | `repositoryCallStart` → 201 + full incident/session |
-| POST | `/api/call/turn` | `repositoryCallTurn` |
-| POST | `/api/call/end` | `repositoryCallEnd` (`reason` and/or `outcome`) |
-| POST | `/api/operator/takeover` | `repositoryOperatorTakeover` |
-| POST | `/api/operator/update-incident` | `repositoryOperatorUpdateIncident` |
-| POST | `/api/operator/resolve` | `repositoryOperatorResolve` |
-| POST | `/api/operator/send-sms` | `repositoryOperatorSendSms` (returns `sent: false` stub) |
-| POST | `/api/simulate/disaster` | `repositorySimulateDisaster` (`maxCap: 29` in route; passes **`reset_existing`**) |
-| POST | `/api/simulate/world-cup` | `repositorySimulateWorldCup` (`maxCap: 50` in route; passes **`reset_existing`**) |
-| POST | `/api/surge/analyze` | `repositorySurgeAnalyze` — GeoOps clusters + **`cluster_id`** / **`priority_score`** on cohort (`api_contracts` §4.11) |
-| GET | `/api/responders/mock` | Responders mock data for map (`api_contracts` §4.8) |
-| GET | `/api/dev/persistence` | `{ uses_supabase: boolean }` — safe for browser; indicates whether `call-repository` uses service-role Supabase vs `demo-store` |
-| GET | `/api/dev/incidents` | `repositoryListIncidentsForDev` — dashboard + operator sim |
-| GET | `/api/dev/call-sessions` | `repositoryListCallSessionsForDev` — query `incident_id` |
-| POST | `/api/dev/triage-preview` | Dry-run `runCallTriageAgent` (no DB writes) |
+| Method | Path                            | Handler notes                                                                                                                   |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/call/start`               | `repositoryCallStart` → 201 + full incident/session                                                                             |
+| POST   | `/api/call/turn`                | `repositoryCallTurn`                                                                                                            |
+| POST   | `/api/call/end`                 | `repositoryCallEnd` (`reason` and/or `outcome`)                                                                                 |
+| POST   | `/api/operator/takeover`        | `repositoryOperatorTakeover`                                                                                                    |
+| POST   | `/api/operator/update-incident` | `repositoryOperatorUpdateIncident`                                                                                              |
+| POST   | `/api/operator/resolve`         | `repositoryOperatorResolve`                                                                                                     |
+| POST   | `/api/operator/send-sms`        | `repositoryOperatorSendSms` (returns `sent: false` stub)                                                                        |
+| POST   | `/api/simulate/disaster`        | `repositorySimulateDisaster` (`maxCap: 100` in route; passes **`reset_existing`**)                                                |
+| POST   | `/api/simulate/world-cup`       | `repositorySimulateWorldCup` (`maxCap: 50` in route; passes **`reset_existing`**)                                               |
+| POST   | `/api/surge/analyze`            | `repositorySurgeAnalyze` — GeoOps clusters + **`cluster_id`** / **`priority_score`** on cohort (`api_contracts` §4.11)          |
+| GET    | `/api/responders/mock`          | Responders mock data for map (`api_contracts` §4.8)                                                                             |
+| GET    | `/api/dev/persistence`          | `{ uses_supabase: boolean }` — safe for browser; indicates whether `call-repository` uses service-role Supabase vs `demo-store` |
+| GET    | `/api/dev/incidents`            | `repositoryListIncidentsForDev` — dashboard + operator sim                                                                      |
+| GET    | `/api/dev/call-sessions`        | `repositoryListCallSessionsForDev` — query `incident_id`                                                                        |
+| POST   | `/api/dev/triage-preview`       | Dry-run `runCallTriageAgent` (no DB writes)                                                                                     |
 
 ---
 
@@ -216,12 +242,13 @@ Routes **`app/api/**/route.ts`** import the repository (not `demo-store` directl
 
 Purpose (**`project_details.md`** intake narrative): exercise **Twilio/ElevenLabs-shaped** traffic against the **real** `POST /api/call/*` handlers so teammates can see **`incidents`**, **`call_sessions`**, **`transcript_events`**, **`audit_logs`** in Supabase without voice infra.
 
-| Piece | Role |
-|-------|------|
-| **`lib/simulate/elevenlabs-voice-sim.ts`** | Builds **`CallStartRequest`** / **`CallTurnRequest`** bodies (`source: "simulate"`, sample utterances) aligned with **`api_contracts`** §4.1–4.2. |
-| **`components/dev/ElevenLabsVoiceSimulator.tsx`** | Client UI: start call, **partial** vs **final** turn (`is_final` — finals run triage per **`project_details`** / repository behavior), end call. Uses **`mounted`** guard to avoid React hydration mismatches on `disabled`. |
-| **`app/dev/voice-sim/page.tsx`** | Dev route **`/dev/voice-sim`**. |
-| **`GET /api/dev/persistence`** | Explains whether **`SUPABASE_SERVICE_ROLE_KEY`** is set (**`api_contracts` / `project_plan`**: backend owns writes; service role for server-side inserts — **publishable/anon keys alone are not enough** for this repository path). |
+| Piece                                             | Role                                                                                                                                                                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`lib/simulate/elevenlabs-voice-sim.ts`**        | Builds **`CallStartRequest`** / **`CallTurnRequest`** bodies (`source: "simulate"`, sample utterances) aligned with **`api_contracts`** §4.1–4.2.                                                                                    |
+| **`components/dev/ElevenLabsVoiceSimulator.tsx`** | Client UI: start call, **partial** vs **final** turn (`is_final`), end call, triage preview. Hydration guard lives in parent **`VoiceSimSimulators`**.                                                                                |
+| **`components/dev/VoiceSimSimulators.tsx`**       | Wraps voice + operator simulators with a single **`clientMounted`** gate.                                                                                                                                                             |
+| **`app/dev/voice-sim/page.tsx`**                  | Dev route **`/dev/voice-sim`** — renders **`VoiceSimSimulators`**.                                                                                                                                                                    |
+| **`GET /api/dev/persistence`**                    | Explains whether **`SUPABASE_SERVICE_ROLE_KEY`** is set (**`api_contracts` / `project_plan`**: backend owns writes; service role for server-side inserts — **publishable/anon keys alone are not enough** for this repository path). |
 
 **Env reminder (`project_plan` §176–§180, `.env.example`):** `NEXT_PUBLIC_SUPABASE_URL` + **`SUPABASE_SERVICE_ROLE_KEY`** → Supabase persistence from API routes. `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or anon) → browser/middleware client only. Optional **`NEXT_PUBLIC_MAPBOX_TOKEN`** → Mapbox **`CommandMap`**; if unset, **`CommandMapOffline`** still drives selection from the middle column.
 
@@ -233,15 +260,15 @@ Use **`docs/api_contracts.md`** as the shape contract; **`docs/project_details.m
 
 ### Voice / telephony (Member 2 — `project_details` §5, §11)
 
-- Send **committed utterances** as **`POST /api/call/turn`** with **`is_final: true`** to run triage; **`is_final: false`** for interim STT if you want transcript rows without triage (**`project_details`** partial vs final).
+- Send **committed utterances** as **`POST /api/call/turn`** with **`is_final: true`** to run triage; **`is_final: false`** for interim STT if you want transcript rows without triage (**`project_details`** partial vs final). On **final** triage turns the backend also persists the agent **`say_to_caller`** as an **`ai`** **`transcript_events`** row for dashboard / audit alignment.
 - Populate **`twilio_call_sid`** / **`elevenlabs_conversation_id`** on **`POST /api/call/start`** when available so sessions trace back to providers (**`api_contracts`** §4.1).
 - Use **`CallTurnResponse.say_to_caller`** (and updated `incident` / `call_session`) to drive the next voice prompt — do not bypass the backend to mutate incidents (**`api_contracts`** contract rules; **`project_details`** “backend validates and executes”).
 
 ### Dashboard / Mapbox (Member 4 — `project_plan` §182–§192, §251+, `project_details` §4 stack table)
 
 - Map and queue UI must use the **same** `Incident`, `CallSession`, `TranscriptEvent` field names and enums as **`api_contracts`** — no duplicate “demo-only” types (**`api_contracts`** §Contract Rules).
-- **`/dashboard`** today: list from **`GET /api/dev/incidents`**; **Realtime** refetches that list on **`public.incidents`** changes when anon env + migration allow reads; **Mapbox** renders **markers only for incidents with `coordinates`** (simulate disaster/world-cup seeds set Toronto pins via **`mergeSimulatedSurgeRow`**). Without **`NEXT_PUBLIC_MAPBOX_TOKEN`**, **`CommandMapOffline`** still shares **`selectedIncidentId`** with the queue.
-- After **`/api/operator/*`** or **`/api/call/*`**, the drawer uses **`onAfterCommand`** → full list refetch + **`GET /api/dev/call-sessions`** for the selected incident; Realtime covers concurrent incident row changes.
+- **`/dashboard`** today: list from **`GET /api/dev/incidents`**; **Realtime** on **`public.incidents`**; **Mapbox** markers for incidents with **`coordinates`** (simulate seeds + **`mergeSimulatedSurgeRow`** / **`simulate-seed-geometry`**); **cluster** selection **flies** the map; **drawer** transcript tab uses **`transcript_events`** when Supabase browser client is configured. Without **`NEXT_PUBLIC_MAPBOX_TOKEN`**, **`CommandMapOffline`** still shares **`selectedIncidentId`** with the queue.
+- After **`/api/operator/*`** or **`/api/call/*`**, the drawer uses **`onAfterCommand`** → full list refetch + **`GET /api/dev/call-sessions`** for the selected incident; Realtime covers concurrent incident row changes; transcript panel picks up new **`transcript_events`** via its own subscription.
 - Buttons that change control (e.g. takeover) should call **API routes**, not patch critical state only in memory (**`api_contracts`** §Contract Rules) — **`IncidentDrawerActions`** follows this.
 
 ### AI (Member 3 — `project_plan` §1.3, §307–§316, `project_details` §6)
@@ -269,17 +296,17 @@ Zod schemas for: `call/start`, `call/turn`, **`call/end`** (requires **`reason` 
 
 ## `lib/server/demo-store.ts` (in-memory)
 
-Still the backing store when Supabase service role is unavailable. **Test helpers:** **`resetDemoStore()`**, **`getDemoStoreSizes()`** — used by Vitest for isolated `call-repository` tests.
+Still the backing store when Supabase service role is unavailable. **`appendSeedTranscriptEvents`** mirrors simulate **`transcript_events`** inserts for in-memory runs. **Test helpers:** **`resetDemoStore()`**, **`getDemoStoreSizes()`** — used by Vitest for isolated `call-repository` tests.
 
 ---
 
 ## Testing (`vitest`)
 
-| Item | Location / command |
-|------|---------------------|
-| Config | `vitest.config.ts` — `environment: "node"`, `include: ["lib/**/*.test.ts"]`, `@` path alias |
-| Scripts | `npm run test` (watch), `npm run test:run` (CI) |
-| Suites | `lib/validation/api-requests.test.ts`, `lib/db/mappers.test.ts`, `lib/server/api-route-helpers.test.ts`, `lib/db/call-repository.test.ts` (memory path, simulate offset burn, world-cup mode) |
+| Item    | Location / command                                                                                                                                                                            |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config  | `vitest.config.ts` — `environment: "node"`, `include: ["lib/**/*.test.ts"]`, `@` path alias                                                                                                   |
+| Scripts | `npm run test` (watch), `npm run test:run` (CI)                                                                                                                                               |
+| Suites  | `lib/validation/api-requests.test.ts`, `lib/db/mappers.test.ts`, `lib/server/api-route-helpers.test.ts`, `lib/db/call-repository.test.ts` (memory path, simulate offset burn, world-cup mode) |
 
 **IDs:** `lib/server/ids.ts` uses **`node:crypto`** `randomUUID()` so tests and Node 18 environments work without global `crypto`.
 
@@ -287,7 +314,7 @@ Still the backing store when Supabase service role is unavailable. **Test helper
 
 ## `lib/ai/*` (overlap with Member 3)
 
-Mock triage agent and schema validation unchanged in spirit; repository final-turn path uses **`runCallTriageAgent`** → **`merge-triage-output`** + persisted state. **Still missing per plan:** native **Featherless** provider path, **`lib/tools/`** executors, controlled multi-step **`runControlledAgent`** loop if the team adopts it.
+Mock triage agent and schema validation unchanged in spirit; repository final-turn path uses **`runCallTriageAgent`** → **`merge-triage-output`** + persisted state (including **AI transcript** line). **Still missing per plan:** native **Featherless** provider path; optional multi-step **`runControlledAgent`** loop if the team adopts it beyond the current two-pass tool loop.
 
 ---
 
@@ -297,28 +324,30 @@ Mock triage agent and schema validation unchanged in spirit; repository final-tu
 2. ~~**`POST /api/surge/analyze`**~~ — **Done (baseline).** Extend **`runSurgeGeoOpsAgent`** with model + tool loop; wire dashboard / demo to call analyze when needed (**`project_plan`** §14.3).
 3. **Browser E2E** — Playwright (or similar) smoke: start → turn → end against `next dev` (automate what **`/dev/voice-sim`** does manually).
 4. **CI** — Run `npm run test:run` + `npm run lint` + `npx tsc --noEmit` on push (**`project_plan`** §139–§151).
-5. **Dashboard shell (remainder)** (`project_plan` §188–§192) — clusters, surge layers, transcript Realtime in drawer, embed or link **`/dev/voice-sim`** call controls if required by DoD.
+5. **Dashboard shell (remainder)** (`project_plan` §188–§192) — **`call_sessions`** Realtime, regional / surge-layer strategy, embed or link **`/dev/voice-sim`** call controls if required by DoD (drawer **transcript Realtime** + cluster fly-to **landed** in this pass).
 
 ---
 
 ## Quick file map (post-integration)
 
-| Area | Files |
-|------|--------|
-| Types | `lib/types/{index,api,domain,enums,geo,json,tools}.ts` |
-| Supabase | `lib/supabase/{env,server,client,middleware,service}.ts` |
-| DB / persistence | **`lib/db/{call-repository,mappers,incident-row,call-session-row}.ts`**, **`lib/db/*.test.ts`** |
-| API backing (RAM) | `lib/server/{demo-store,merge-triage-output,ids,iso-now,api-route-helpers,responders-mock-data,simulate-seed-enrichment}.ts` |
-| Dashboard feed (client) | **`lib/data/apiIncidentDataSource.ts`**, **`lib/data/dashboardIncidentFeed.ts`**, **`lib/data/dashboardCommandApi.ts`**, **`lib/http/postJson.ts`**, **`lib/data/simulationClient.ts`** |
-| HTTP Zod | `lib/validation/api-requests.ts`, **`api-requests.test.ts`** |
-| Route helpers | **`lib/server/api-route-helpers.test.ts`** |
-| Triage | `lib/ai/agents/{mockCallTriageAgent,callTriageAgent}.ts`, `lib/ai/providers/gemmaClient.ts`, `lib/ai/{schemas,prompts,examples,README,BACKEND_INTEGRATION}.md` |
-| Voice sim (payload builders) | **`lib/simulate/elevenlabs-voice-sim.ts`** |
-| Mapbox dashboard | **`app/dashboard/page.tsx`**, **`components/dashboard/*`**, **`components/map/CommandMap.tsx`**, **`components/incidents/*`** |
-| Dev UI | **`app/dev/voice-sim/page.tsx`**, **`components/dev/ElevenLabsVoiceSimulator.tsx`** (`POST /api/dev/triage-preview` dry-run shares `runCallTriageAgent`) |
-| Dev API | **`app/api/dev/{persistence,incidents,call-sessions,triage-preview}/route.ts`** |
-| Surge / GeoOps | **`app/api/surge/analyze/route.ts`**, **`lib/surge/*`**, **`repositorySurgeAnalyze`** |
+| Area                         | Files                                                                                                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types                        | `lib/types/{index,api,domain,enums,geo,json,tools}.ts`                                                                                                                                  |
+| Supabase                     | `lib/supabase/{env,server,client,middleware,service}.ts`                                                                                                                                |
+| DB / persistence             | **`lib/db/{call-repository,mappers,incident-row,call-session-row}.ts`**, **`lib/db/*.test.ts`**                                                                                         |
+| API backing (RAM)            | `lib/server/{demo-store,merge-triage-output,ids,iso-now,api-route-helpers,responders-mock-data,simulate-seed-enrichment}.ts`                                                            |
+| Dashboard feed (client)      | **`lib/data/apiIncidentDataSource.ts`**, **`lib/data/dashboardIncidentFeed.ts`**, **`lib/data/supabaseTranscriptDataSource.ts`**, **`lib/data/dashboardCommandApi.ts`**, **`lib/http/postJson.ts`**, **`lib/data/simulationClient.ts`** |
+| Dashboard persona            | **`lib/dashboard/dashboardPersona.ts`**, **`components/dashboard/DashboardPersonaContext.tsx`**                                                                                     |
+| Simulate / map geometry      | **`lib/mock/simulate-seed-geometry.ts`**, **`lib/mock/disasterLayers.ts`**                                                                                                            |
+| HTTP Zod                     | `lib/validation/api-requests.ts`, **`api-requests.test.ts`**                                                                                                                            |
+| Route helpers                | **`lib/server/api-route-helpers.test.ts`**                                                                                                                                              |
+| Triage                       | `lib/ai/agents/{mockCallTriageAgent,callTriageAgent}.ts`, `lib/ai/providers/gemmaClient.ts`, `lib/ai/{schemas,prompts,examples,README,BACKEND_INTEGRATION}.md`                          |
+| Voice sim (payload builders) | **`lib/simulate/elevenlabs-voice-sim.ts`**                                                                                                                                              |
+| Mapbox dashboard             | **`app/dashboard/page.tsx`**, **`components/dashboard/*`**, **`components/map/CommandMap.tsx`**, **`components/incidents/*`**                                                           |
+| Dev UI                       | **`app/dev/voice-sim/page.tsx`**, **`components/dev/VoiceSimSimulators.tsx`**, **`components/dev/ElevenLabsVoiceSimulator.tsx`**, **`components/dev/OperatorFlowSimulator.tsx`**   |
+| Dev API                      | **`app/api/dev/{persistence,incidents,call-sessions,triage-preview}/route.ts`**                                                                                                         |
+| Surge / GeoOps               | **`app/api/surge/analyze/route.ts`**, **`lib/surge/*`**, **`repositorySurgeAnalyze`**                                                                                                   |
 
 ---
 
-*Last updated: **`POST /api/surge/analyze`**, **`lib/surge/buildSurgeGeoOpsAgentInput`**, rank-based **`priority_score`** persistence, **`GEOOPS_PROVIDER`** handoff for GeoOps model work; dashboard auto-call to analyze + CI smoke still open.*
+_Last updated: **Transcript Realtime + `transcript_events` seeding** (`call-repository` + **`LiveTranscriptPanel`**), **AI `say_to_caller` transcript rows** after final triage, **simulate–map geometry** (`simulate-seed-geometry` / **`EVENT_ZONES`** / **`disasterLayers`**), **dashboard personas** + **tabbed drawer** + **cluster fly-to**, **`VoiceSimSimulators`** hydration, disaster simulate **`maxCap: 100`** / default batch **50**, direct **`mapbox-gl`** dependency._

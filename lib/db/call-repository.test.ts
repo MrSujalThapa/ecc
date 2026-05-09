@@ -16,6 +16,7 @@ import {
 import {
   getDemoStoreSizes,
   getIncident,
+  getTranscriptHistoryForSession,
   listAuditLogsForIncident,
   resetDemoStore,
 } from "@/lib/server/demo-store";
@@ -113,6 +114,9 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.transcript_event.is_final).toBe(true);
       expect(Array.isArray(out.actions)).toBe(true);
       expect(out.incident.id).toBe(incident_id);
+      const events = getTranscriptHistoryForSession(call_session_id);
+      expect(events.map((e) => e.speaker)).toEqual(["caller", "ai"]);
+      expect(events[1]?.text).toBe(out.say_to_caller);
     });
 
     it("two-pass tool loop: demo trigger geocodes location and writes coordinates", async () => {
@@ -304,10 +308,27 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.created_incidents).toHaveLength(2);
       expect(out.created_call_sessions).toHaveLength(2);
       expect(out.mode).toBe("disaster");
+      expect(out.created_incidents[0]?.assigned_operator).toBe("DIS-SIM-OP-01");
+      expect(out.created_incidents[1]?.assigned_operator).toBe("DIS-SIM-OP-02");
+      expect(out.created_incidents[0]?.status).toBe("human_active");
+      expect(out.created_incidents[0]?.control_state).toBe("human_active");
+      expect(out.created_incidents[0]?.ai_active).toBe(false);
+      expect(out.created_incidents[1]?.status).toBe("human_active");
+      expect(out.created_incidents[1]?.control_state).toBe("human_active");
       expect(out.created_incidents[0]?.incident_type).toBe("structure_fire");
       expect(out.created_incidents[0]?.coordinates).not.toBeNull();
       expect(out.created_incidents[0]?.summary).toContain("smoke");
       expect(out.created_call_sessions[0]?.next_question).toContain("floor");
+      const rt = out.created_call_sessions[0]?.recent_transcript ?? [];
+      expect(rt).toHaveLength(2);
+      expect((rt[0] as { speaker?: string }).speaker).toBe("caller");
+      expect((rt[1] as { speaker?: string }).speaker).toBe("ai");
+      const sid = out.created_call_sessions[0]?.id;
+      expect(sid).toBeTruthy();
+      expect(getTranscriptHistoryForSession(sid!).map((e) => e.speaker)).toEqual([
+        "caller",
+        "ai",
+      ]);
       const sizes = getDemoStoreSizes();
       expect(sizes.incidents).toBe(2);
       expect(sizes.callSessions).toBe(2);
@@ -349,6 +370,37 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.created_incidents).toHaveLength(0);
       expect(getDemoStoreSizes().incidents).toBe(0);
     });
+
+    it("assigns at most one incident per DIS-SIM operator (10 of 50)", async () => {
+      const out = await repositorySimulateDisaster({
+        reset_existing: true,
+        offset: 0,
+        batch_size: 50,
+        maxCap: 100,
+      });
+      expect(out.created_incidents).toHaveLength(50);
+      const withOp = out.created_incidents.filter((i) => i.assigned_operator !== null);
+      const withoutOp = out.created_incidents.filter((i) => i.assigned_operator === null);
+      expect(withOp).toHaveLength(10);
+      expect(withoutOp).toHaveLength(40);
+      const distinct = new Set(
+        out.created_incidents.map((i) => i.assigned_operator).filter(Boolean),
+      );
+      expect(distinct.size).toBe(10);
+      expect(out.created_incidents[0]?.assigned_operator).toBe("DIS-SIM-OP-01");
+      expect(out.created_incidents[9]?.assigned_operator).toBe("DIS-SIM-OP-10");
+      expect(out.created_incidents[10]?.assigned_operator).toBeNull();
+      expect(out.created_incidents[40]?.assigned_operator).toBeNull();
+      expect(
+        withOp.every(
+          (i) =>
+            i.status === "human_active" &&
+            i.control_state === "human_active" &&
+            i.ai_active === false,
+        ),
+      ).toBe(true);
+      expect(withoutOp.every((i) => i.status !== "human_active")).toBe(true);
+    });
   });
 
   describe("repositorySimulateWorldCup", () => {
@@ -364,6 +416,7 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.created_incidents[0]?.incident_type).toBe("crowd_safety");
       expect(out.created_incidents[0]?.coordinates).not.toBeNull();
       expect(out.created_call_sessions[0]?.next_question).toContain("gate");
+      expect(out.created_call_sessions[0]?.recent_transcript).toHaveLength(2);
     });
   });
 

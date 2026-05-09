@@ -10,6 +10,7 @@ import { EventLayer } from "@/components/map/EventLayer";
 import { HeatmapLayer } from "@/components/map/HeatmapLayer";
 import { MapLayerControls } from "@/components/map/MapLayerControls";
 import { urgencyMarkerClass } from "@/lib/map/incidentStyling";
+import { isValidCoordinates } from "@/lib/map/geojson";
 import {
   defaultMapLayerVisibility,
   disasterMapLayerIds,
@@ -370,6 +371,34 @@ export function CommandMap({
       essential: true,
     });
   }, [incidents, mapReady, selectedIncidentId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !mapReady || !selectedClusterId) {
+      return;
+    }
+
+    setLayerOverrides((current) =>
+      current.clusters === true ? current : { ...current, clusters: true },
+    );
+
+    const cluster = clusters.find((c) => c.cluster_id === selectedClusterId);
+    const center = cluster?.center;
+
+    if (!center || !isValidCoordinates(center)) {
+      return;
+    }
+
+    map.flyTo({
+      center: [center.lng, center.lat],
+      zoom: Math.max(map.getZoom(), 14.4),
+      pitch: 64,
+      bearing: -24,
+      duration: 700,
+      essential: true,
+    });
+  }, [clusters, mapReady, selectedClusterId]);
 
   if (!token) {
     return (

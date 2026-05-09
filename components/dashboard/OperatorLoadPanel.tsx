@@ -3,9 +3,14 @@ import { getDashboardMetrics } from "@/components/dashboard/StatusMetrics";
 
 type OperatorLoadPanelProps = {
   incidents: Incident[];
+  /** When false, only the title and progress bar are shown (executive persona). */
+  showBreakdownLine?: boolean;
 };
 
-export function OperatorLoadPanel({ incidents }: OperatorLoadPanelProps) {
+export function OperatorLoadPanel({
+  incidents,
+  showBreakdownLine = true,
+}: OperatorLoadPanelProps) {
   const metrics = getDashboardMetrics(incidents);
 
   return (
@@ -24,11 +29,13 @@ export function OperatorLoadPanel({ incidents }: OperatorLoadPanelProps) {
           style={{ width: `${Math.min(metrics.operatorLoadPercent, 100)}%` }}
         />
       </div>
-      <p className="mt-2 text-xs text-slate-400">
-        {metrics.humanActiveCount} human active /{" "}
-        {metrics.operatorRequiredCount} require operators /{" "}
-        {metrics.assignedOperatorCount} assigned
-      </p>
+      {showBreakdownLine ? (
+        <p className="mt-2 text-xs text-slate-400">
+          {metrics.humanActiveCount} human active /{" "}
+          {metrics.operatorRequiredCount} require operators /{" "}
+          {metrics.assignedOperatorCount} assigned
+        </p>
+      ) : null}
     </div>
   );
 }

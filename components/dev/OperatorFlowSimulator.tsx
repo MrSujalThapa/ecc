@@ -38,7 +38,6 @@ const postJson = async <T,>(
 };
 
 export const OperatorFlowSimulator = () => {
-  const [mounted, setMounted] = useState(false);
   const [persistence, setPersistence] = useState<PersistenceState>({
     checked: false,
     uses_supabase: false,
@@ -55,10 +54,6 @@ export const OperatorFlowSimulator = () => {
 
   const appendLog = useCallback((line: string) => {
     setLog((prev) => [...prev.slice(-40), `${new Date().toISOString().slice(11, 19)} ${line}`]);
-  }, []);
-
-  useEffect(() => {
-    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -107,9 +102,12 @@ export const OperatorFlowSimulator = () => {
   }, [appendLog, persistence.uses_supabase]);
 
   useEffect(() => {
-    if (!mounted || !persistence.checked) return;
-    void handleRefreshIncidents();
-  }, [mounted, persistence.checked, handleRefreshIncidents]);
+    if (!persistence.checked) return;
+    const id = setTimeout(() => {
+      void handleRefreshIncidents();
+    }, 0);
+    return () => clearTimeout(id);
+  }, [persistence.checked, handleRefreshIncidents]);
 
   const requireSelection = (): string | null => {
     if (!selectedId.trim()) {
@@ -217,7 +215,7 @@ export const OperatorFlowSimulator = () => {
     await handleRefreshIncidents();
   };
 
-  const controlsDisabled = !mounted || busy || listBusy;
+  const controlsDisabled = busy || listBusy;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 text-zinc-900 dark:text-zinc-50">

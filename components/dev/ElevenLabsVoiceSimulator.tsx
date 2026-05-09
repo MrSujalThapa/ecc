@@ -42,7 +42,6 @@ const postJson = async <T,>(url: string, body: unknown): Promise<{ ok: boolean; 
 };
 
 export const ElevenLabsVoiceSimulator = () => {
-  const [mounted, setMounted] = useState(false);
   const [persistence, setPersistence] = useState<PersistenceState>({
     checked: false,
     uses_supabase: false,
@@ -61,18 +60,12 @@ export const ElevenLabsVoiceSimulator = () => {
     useState<VoiceSimTriagePreviewResponseBody | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  /** Until true, keep turn/end controls disabled so SSR + first client paint match (avoids hydration mismatch). */
-  const turnControlsDisabled = !mounted || busy || incidentId.length === 0;
-  const triagePreviewDisabled =
-    !mounted || busy || !(lastTurn?.incident ?? lastStart?.incident);
-  const endCallDisabled = !mounted || busy || sessionId.length === 0;
+  const turnControlsDisabled = busy || incidentId.length === 0;
+  const triagePreviewDisabled = busy || !(lastTurn?.incident ?? lastStart?.incident);
+  const endCallDisabled = busy || sessionId.length === 0;
 
   const appendLog = useCallback((line: string) => {
     setLog((prev) => [...prev.slice(-40), `${new Date().toISOString().slice(11, 19)} ${line}`]);
-  }, []);
-
-  useEffect(() => {
-    setMounted(true);
   }, []);
 
   useEffect(() => {

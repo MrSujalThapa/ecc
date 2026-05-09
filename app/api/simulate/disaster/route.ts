@@ -24,7 +24,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     const payload: SimulateDisasterResponse = await repositorySimulateDisaster({
       batch_size: parsed.data.batch_size,
       offset: parsed.data.offset,
-      maxCap: 29,
+      maxCap: 100,
       reset_existing: parsed.data.reset_existing,
     });
     return NextResponse.json(payload);
