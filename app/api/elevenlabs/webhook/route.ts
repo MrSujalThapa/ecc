@@ -33,32 +33,46 @@ import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/li
 // ---------------------------------------------------------------------------
 // Featherless voice reply — OpenAI-compatible, used when FEATHERLESS_API_KEY is set
 // ---------------------------------------------------------------------------
-const VOICE_SYSTEM_PROMPT = `You are a live emergency dispatch AI. A caller is on the phone right now.
-Given the conversation so far, reply with ONE short sentence spoken to the caller.
+const VOICE_SYSTEM_PROMPT = `You are a live emergency dispatch AI. A caller is on the phone right now reporting an emergency.
+Reply with ONE short spoken sentence to the caller.
 Rules:
-- 1-2 sentences maximum. Calm, clear, direct.
-- If you don't know their location yet, ask for it.
+- Maximum 1-2 sentences. Calm, clear, direct.
+- Handle fragmented or incomplete speech — callers under stress won't speak in full sentences. Infer the meaning.
+- NEVER repeat a question you already asked in this conversation. Check the history.
+- If you already know their location, do NOT ask for it again.
+- If you already know the emergency type, do NOT ask again — move to next unknown detail.
+- Collect in order: emergency type → location → people affected → name/callback.
+- Skip what you already know.
 - Fire or smoke: tell them to evacuate if safe, say help is coming.
-- Break-in or intruder: tell them to stay hidden, help is coming.
-- Medical emergency: tell them not to move the person, help is coming.
-- Non-emergency: acknowledge and ask for their location.
-- Unknown: ask one short clarifying question.
-- Never repeat a question you already asked.
-- Reply with ONLY the spoken sentence. No JSON, no labels, no explanation.`.trim();
+- Break-in or intruder: stay hidden, help is coming.
+- Medical emergency: don't move the person, help is coming.
+- If the caller speaks a non-English language, respond in THAT same language.
+- Reply with ONLY the spoken words. No JSON, no labels, no explanation.`.trim();
 
 const generateVoiceReplyViaFeatherless = async (
-  history: string[],
-  latestText: string
+  conversationMessages: Array<{ role: "user" | "assistant"; content: string }>,
+  latestText: string,
+  callerLanguage?: string | null
 ): Promise<string> => {
   const key = process.env.FEATHERLESS_API_KEY?.trim();
   const model = process.env.FEATHERLESS_MODEL?.trim() ?? "google/gemma-3-4b-it";
   const base = process.env.FEATHERLESS_BASE_URL?.trim() ?? "https://api.featherless.ai/v1";
   if (!key) throw new Error("FEATHERLESS_API_KEY not set");
 
-  const historyLines = history.length > 0
-    ? `Previous caller messages:\n${history.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n`
-    : "";
-  const userMessage = `${historyLines}Latest caller message: "${latestText}"\n\nWhat do you say to the caller?`;
+  // Build full conversation history so AI knows what it already asked
+  const chatMessages: Array<{ role: string; content: string }> = [
+    { role: "system", content: VOICE_SYSTEM_PROMPT },
+    ...conversationMessages,
+    { role: "user", content: latestText },
+  ];
+
+  // Add language hint if non-English caller detected
+  if (callerLanguage && callerLanguage !== "en") {
+    chatMessages[0] = {
+      role: "system",
+      content: VOICE_SYSTEM_PROMPT + `\n\nIMPORTANT: The caller is speaking ${callerLanguage}. Respond in ${callerLanguage}.`,
+    };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -68,10 +82,7 @@ const generateVoiceReplyViaFeatherless = async (
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: VOICE_SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
+        messages: chatMessages,
         max_tokens: 80,
         temperature: 0.1,
       }),
@@ -177,7 +188,7 @@ const getBaseUrl = (request: Request): string => {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export const POST = async (request: Request): Promise<NextResponse> => {
+export const POST = async (request: Request): Promise<NextResponse | Response> => {
   // Read raw body for signature verification
   const rawBody = await request.text();
 
@@ -385,12 +396,17 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     let shouldEnd = false;
 
     try {
-      const transcriptHistory = substantiveUserMsgs.slice(0, -1);
+      // Build full conversation history (user + assistant turns) so Featherless
+      // knows what questions it already asked and doesn't repeat them.
+      const conversationMessages = event.messages
+        .filter((m) => (m.role === "user" || m.role === "assistant") && (m.content ?? "").trim())
+        .slice(0, -1) // exclude the latest user turn (passed separately as latestText)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content ?? "" }));
 
       // Direct lightweight Featherless call — minimal prompt, no tool catalog, no schema validation.
       // No mock fallback. If Featherless fails or times out, voiceFallback fires below.
       sayToCaller = await Promise.race([
-        generateVoiceReplyViaFeatherless(transcriptHistory, reasoningText),
+        generateVoiceReplyViaFeatherless(conversationMessages, reasoningText, translated.language),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("voice_timeout")), 8000)
         ),
