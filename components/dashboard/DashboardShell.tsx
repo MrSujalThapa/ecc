@@ -177,6 +177,14 @@ export function DashboardShell() {
   }, []);
 
   useEffect(() => {
+    // When `subscribeToIncidents` exists, that path already bootstraps from Supabase.
+    // Running `getInitialIncidents()` in parallel can finish later with a different source
+    // (e.g. API / in-memory dev list after a thrown client fetch) and overwrite the live
+    // feed, so the queue shows more incidents than rows in `public.incidents`.
+    if (incidentDataSource.subscribeToIncidents) {
+      return;
+    }
+
     let ignore = false;
 
     const run = async () => {
@@ -260,6 +268,22 @@ export function DashboardShell() {
             );
             setLoadState("error");
           });
+          void (async () => {
+            try {
+              const result = await incidentDataSource.getInitialIncidents();
+              startTransition(() => {
+                applyIncidentFeedResult(
+                  result,
+                  setIncidents,
+                  setUsingFallback,
+                  setLoadState,
+                  setLoadMessage,
+                );
+              });
+            } catch {
+              // keep error banner; incidents unchanged
+            }
+          })();
         },
       );
     } catch (error) {

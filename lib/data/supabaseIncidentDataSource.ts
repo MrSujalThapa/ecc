@@ -128,7 +128,11 @@ export function createSupabaseIncidentDataSource(options?: {
             throw new Error(error.message);
           }
 
-          applyChange((data ?? []) as unknown as Incident[]);
+          const rows = (data ?? []) as unknown as Incident[];
+          // Match `fetchSupabaseIncidents`: empty table uses schema-compatible demo rows.
+          applyChange(
+            rows.length === 0 ? [...dashboardFallbackIncidents] : rows,
+          );
         } catch (err) {
           const error =
             err instanceof Error ? err : new Error("Realtime bootstrap failed");
