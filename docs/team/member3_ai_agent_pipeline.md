@@ -400,6 +400,10 @@ Backend validates and executes actions.
 Human operators remain in control.
 ```
 
+Caller-facing responses must not imply dispatch has occurred unless backend
+state or an operator has confirmed it. For safe vehicle theft report intake,
+the AI should collect details and avoid phrases like "help is on the way."
+
 ---
 
 ## What I Need From Teammates
