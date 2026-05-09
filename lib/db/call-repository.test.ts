@@ -11,6 +11,7 @@ import {
   repositoryOperatorUpdateIncident,
   repositorySimulateDisaster,
   repositorySimulateWorldCup,
+  repositorySurgeAnalyze,
 } from "./call-repository";
 import {
   getDemoStoreSizes,
@@ -363,6 +364,37 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.created_incidents[0]?.incident_type).toBe("crowd_safety");
       expect(out.created_incidents[0]?.coordinates).not.toBeNull();
       expect(out.created_call_sessions[0]?.next_question).toContain("gate");
+    });
+  });
+
+  describe("repositorySurgeAnalyze", () => {
+    it("clusters disaster cohort and persists cluster_id", async () => {
+      await repositorySimulateDisaster({
+        batch_size: 2,
+        maxCap: 29,
+        reset_existing: true,
+      });
+      const out = await repositorySurgeAnalyze({
+        mode: "disaster",
+        include_responders: true,
+      });
+      expect(out.top_priority_incident_ids.length).toBe(2);
+      expect(out.updated_incidents.length).toBe(2);
+      expect(out.clusters.length).toBeGreaterThanOrEqual(1);
+      for (const inc of out.updated_incidents) {
+        expect(inc.cluster_id).toBeTruthy();
+        expect(
+          out.clusters.some(
+            (c) => c.cluster_id === inc.cluster_id && c.incident_ids.includes(inc.id)
+          )
+        ).toBe(true);
+      }
+      const [firstId, secondId] = out.top_priority_incident_ids;
+      const first = out.updated_incidents.find((i) => i.id === firstId);
+      const second = out.updated_incidents.find((i) => i.id === secondId);
+      expect(first?.priority_score).toBeDefined();
+      expect(second?.priority_score).toBeDefined();
+      expect(first!.priority_score!).toBeGreaterThanOrEqual(second!.priority_score!);
     });
   });
 

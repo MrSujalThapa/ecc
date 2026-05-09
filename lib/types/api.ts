@@ -15,6 +15,7 @@ import type {
   EventLayer,
   Incident,
   Responder,
+  SurgeCluster,
   TranscriptEvent,
 } from "./domain";
 
@@ -204,4 +205,18 @@ export type SimulateWorldCupResponse = {
 
 export type RespondersMockResponse = {
   responders: Responder[];
+};
+
+// --- POST /api/surge/analyze (`docs/api_contracts.md` §4.11) ---
+
+export type SurgeAnalyzeRequest = {
+  mode: "disaster" | "world_cup";
+  include_responders?: boolean;
+  include_event_layers?: boolean;
+};
+
+export type SurgeAnalyzeResponse = {
+  clusters: SurgeCluster[];
+  updated_incidents: Incident[];
+  top_priority_incident_ids: string[];
 };

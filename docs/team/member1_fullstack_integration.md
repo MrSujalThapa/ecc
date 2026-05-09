@@ -12,7 +12,7 @@ This note tracks **`lib/`**, **`app/api/*`**, **`app/dev/*`**, persistence (Supa
 
 | Responsibility | Status | Where / notes |
 |----------------|--------|----------------|
-| Repository structure | **Advanced** | `lib/types`, `lib/server`, `lib/supabase`, `lib/ai`, `lib/validation`, **`lib/db/*`**, **`lib/tools/*`** (safe tool executors). Docs still mention `lib/voice/*` — not created yet. |
+| Repository structure | **Advanced** | `lib/types`, `lib/server`, `lib/supabase`, `lib/ai`, `lib/validation`, **`lib/db/*`**, **`lib/tools/*`**, **`lib/surge/*`** (GeoOps input builder for **`/api/surge/analyze`**). `lib/voice/*` exists for webhooks. |
 | Shared types | **Done** | `lib/types/` — domain in `domain.ts`; **`lib/types/api.ts`** aligned with **`docs/api_contracts.md`** (call start/turn/end, operator, simulate, responders). |
 | Dashboard shell | **Partial** | **`/dashboard`** (`app/dashboard/page.tsx` + `DashboardShell`): incident list from **`GET /api/dev/incidents`** via **`lib/data/apiIncidentDataSource.ts`**, optional **Supabase Realtime** on `public.incidents` (`lib/data/dashboardIncidentFeed.ts`), queue + drawer + **`DemoControls`** (simulate batch + `reset_existing`), **`CommandMap`** with Mapbox when **`NEXT_PUBLIC_MAPBOX_TOKEN`** is set or **`CommandMapOffline`** otherwise, drawer **`IncidentDrawerActions`** → **`POST /api/operator/*`** via **`lib/data/dashboardCommandApi.ts`**, call-session summary via **`GET /api/dev/call-sessions`**. **Still open vs plan:** map clusters / surge sync / full Step 11 Realtime on sessions & transcripts. |
 | Supabase client | **Done** | `lib/supabase/{env,server,client,middleware}.ts` + **`lib/supabase/service.ts`** (service-role server client, no session). Root `middleware.ts` where present. |
@@ -81,19 +81,18 @@ This section summarizes what is **implemented now** vs **still missing**, mapped
 - **Main Step 11 — Realtime (partial)**
   - **`/dashboard`** subscribes to **`public.incidents`** via Supabase Realtime (browser client) and **refetches** `GET /api/dev/incidents` on change.
   - Requires **`NEXT_PUBLIC_SUPABASE_URL`** + **`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`** (or anon) **and** migration **`20260507194500_anon_select_incidents_sessions_transcripts.sql`** applied so anon can **SELECT** (Realtime uses the same permission model as PostgREST reads).
-  - Still missing: Realtime on **`call_sessions`** / **`transcript_events`**, live transcript drawer, Map-driven cluster sync (full Step 11 scope).
+  - Still missing: Realtime on **`call_sessions`** / optional **`transcript_events`** (drawer uses **`LiveTranscriptPanel`** when Supabase Realtime is enabled for that table), Map-driven cluster sync (full Step 11 scope).
+- **Main Step 14 — Surge / GeoOps (baseline, Member 1)**
+  - **`POST /api/surge/analyze`**, **`lib/surge/buildSurgeGeoOpsAgentInput.ts`**, **`repositorySurgeAnalyze`**: validated **`runSurgeGeoOpsAgent`** output, persists **`cluster_id`** + rank-derived **`priority_score`**, audit log. **`GEOOPS_PROVIDER`** (fallback **`AI_PROVIDER`**) is passed into the agent for the next integration step.
 
 ### Not done yet (gaps vs docs)
 
 - **Main Step 2.3 / Steps 4–5 (remainder)**: map **clusters** / regions, surge-driven map behaviour, full Definition-of-Done polish for dashboard UX (baseline `/dashboard` + Mapbox/offline map + queue + drawer **is in repo**)
-- **Main Step 10**: real Twilio + ElevenLabs webhook ingestion + call transfer + real SMS provider integration (Member 2)
+- **Main Step 10 (remainder)**: production hardening (e.g. Twilio signature verification), real SMS sending beyond operator stub — webhooks + **`lib/voice/*`** are in repo
 - **Main Step 11 (remainder)**: Realtime for **`call_sessions`** / **`transcript_events`**, Mapbox live sync polish, loading/error UX per Definition of Done
-- **Main Step 14**: **`POST /api/surge/analyze`** + Surge/GeoOps agent + cluster/priority persistence
+- **Main Step 14 (remainder)**: model + **tool loop** inside **`runSurgeGeoOpsAgent`**; dashboard / demo **calls** to **`/api/surge/analyze`** (**`project_plan`** §14.3 “surge intelligence” wiring)
 - **Main Step 15–17**: hardening, demo polish, deployment/CI
-- **`project_details` recommended structure still missing**
-  - `/app/api/twilio/webhook`, `/app/api/elevenlabs/webhook`
-  - `lib/voice/*` wrappers
-  - Production voice/SMS side effects (safe tool loop exists, but no Twilio/ElevenLabs/SMS provider execution in the tool layer)
+- **`project_details` §11 diagram vs repo** — webhook routes and **`lib/voice/*`** exist (filenames may differ); DB helpers are mostly consolidated in **`lib/db/call-repository.ts`** rather than separate `incidents.ts` / `callSessions.ts`. Operator SMS remains a **stub**.
 
 ---
 
@@ -204,6 +203,7 @@ Routes **`app/api/**/route.ts`** import the repository (not `demo-store` directl
 | POST | `/api/operator/send-sms` | `repositoryOperatorSendSms` (returns `sent: false` stub) |
 | POST | `/api/simulate/disaster` | `repositorySimulateDisaster` (`maxCap: 29` in route; passes **`reset_existing`**) |
 | POST | `/api/simulate/world-cup` | `repositorySimulateWorldCup` (`maxCap: 50` in route; passes **`reset_existing`**) |
+| POST | `/api/surge/analyze` | `repositorySurgeAnalyze` — GeoOps clusters + **`cluster_id`** / **`priority_score`** on cohort (`api_contracts` §4.11) |
 | GET | `/api/responders/mock` | Responders mock data for map (`api_contracts` §4.8) |
 | GET | `/api/dev/persistence` | `{ uses_supabase: boolean }` — safe for browser; indicates whether `call-repository` uses service-role Supabase vs `demo-store` |
 | GET | `/api/dev/incidents` | `repositoryListIncidentsForDev` — dashboard + operator sim |
@@ -249,10 +249,11 @@ Use **`docs/api_contracts.md`** as the shape contract; **`docs/project_details.m
 - **`lib/db/call-repository`** final-turn path calls **`runCallTriageAgent`** (`AI_PROVIDER`; see **`docs/team/member3_ai_agent_pipeline.md`**). Gemma responses must pass **`validateTriageAgentOutput`** before **`merge-triage-output`**; failures fall back to **`mockCallTriageAgent`**.
 - **`tool_requests`** / **`system_actions`** are **proposals** — backend validates and executes allowed tools (**`project_details`** §3 key rule). The safe tool loop is implemented (registry + dispatcher + mock executors), but real voice/SMS side effects remain out of scope until Member 2 wiring exists.
 
-### Surge / GeoOps (`project_details` §6.2, `api_contracts` §4.11, `project_plan` Phase C §529–§534)
+### Surge / GeoOps (`project_details` §6.2, `api_contracts` §4.11, `project_plan` Main Step 14)
 
-- **`POST /api/surge/analyze`** is specified in **`api_contracts`** but **not implemented** in this repo — do not assume it exists until Member 1 adds the route and response shape.
-- Until then, bulk scenarios use **`POST /api/simulate/disaster`** and **`POST /api/simulate/world-cup`** (`project_plan` demo scripts: earthquake / stadium surge).
+- **`POST /api/surge/analyze`** — **Implemented:** `app/api/surge/analyze/route.ts` → **`repositorySurgeAnalyze`** in **`lib/db/call-repository.ts`**. Loads cohort + optional responders / `event_layers`, builds input via **`lib/surge/buildSurgeGeoOpsAgentInput.ts`** (includes **`GEOOPS_PROVIDER` ?? `AI_PROVIDER`** → **`runSurgeGeoOpsAgent`**, validates output, persists **`cluster_id`** + **`priority_score`** (rank-derived) + audit **`surge_analyze`**.
+- **Member 3 integration:** deterministic **`runSurgeGeoOpsAgent`** still ignores model passes; extend that function and/or pass **`recentToolResults`** from the builder when the GeoOps tool loop is added. Dashboard trigger for analyze remains Member 4 / product (`project_plan` §14.3).
+- Bulk seeding continues to use **`POST /api/simulate/disaster`** and **`POST /api/simulate/world-cup`** before or after analyze.
 
 ### QA / CI (`project_plan` §139–§151)
 
@@ -293,7 +294,7 @@ Mock triage agent and schema validation unchanged in spirit; repository final-tu
 ## Gaps / next steps (priority)
 
 1. **RLS / anon reads** — **`20260507194500_*`** enables broad anon **SELECT** for dashboard Realtime; **`app/page.tsx`** vs **`/dashboard`** should stay aligned with product security expectations—tighten policies and roles before production.
-2. **`POST /api/surge/analyze`** — Implement route + Surge/GeoOps agent persistence to match **`api_contracts`** §4.11 before dashboard depends on it.
+2. ~~**`POST /api/surge/analyze`**~~ — **Done (baseline).** Extend **`runSurgeGeoOpsAgent`** with model + tool loop; wire dashboard / demo to call analyze when needed (**`project_plan`** §14.3).
 3. **Browser E2E** — Playwright (or similar) smoke: start → turn → end against `next dev` (automate what **`/dev/voice-sim`** does manually).
 4. **CI** — Run `npm run test:run` + `npm run lint` + `npx tsc --noEmit` on push (**`project_plan`** §139–§151).
 5. **Dashboard shell (remainder)** (`project_plan` §188–§192) — clusters, surge layers, transcript Realtime in drawer, embed or link **`/dev/voice-sim`** call controls if required by DoD.
@@ -316,7 +317,8 @@ Mock triage agent and schema validation unchanged in spirit; repository final-tu
 | Mapbox dashboard | **`app/dashboard/page.tsx`**, **`components/dashboard/*`**, **`components/map/CommandMap.tsx`**, **`components/incidents/*`** |
 | Dev UI | **`app/dev/voice-sim/page.tsx`**, **`components/dev/ElevenLabsVoiceSimulator.tsx`** (`POST /api/dev/triage-preview` dry-run shares `runCallTriageAgent`) |
 | Dev API | **`app/api/dev/{persistence,incidents,call-sessions,triage-preview}/route.ts`** |
+| Surge / GeoOps | **`app/api/surge/analyze/route.ts`**, **`lib/surge/*`**, **`repositorySurgeAnalyze`** |
 
 ---
 
-*Last updated (2026-05-07): `/dashboard` shell (incident feed, Realtime refetch + TopBar badge, Mapbox or **`CommandMapOffline`**, demo simulate + `reset_existing`, drawer operator APIs + call-sessions), **`GET /api/dev/call-sessions`**, simulate seed enrichment + repository tests, anon SELECT migration for Realtime, `postJson` + simulate POST helpers. Doc links point at **`docs/project_plan.md`** / **`docs/project_details.md`**. Refresh when clusters, session/transcript Realtime, `surge/analyze`, and CI smoke land.*
+*Last updated: **`POST /api/surge/analyze`**, **`lib/surge/buildSurgeGeoOpsAgentInput`**, rank-based **`priority_score`** persistence, **`GEOOPS_PROVIDER`** handoff for GeoOps model work; dashboard auto-call to analyze + CI smoke still open.*

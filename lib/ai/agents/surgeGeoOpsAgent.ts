@@ -1,3 +1,12 @@
+/**
+ * Surge / GeoOps agent (`project_details.md` §6.2).
+ *
+ * `RunSurgeGeoOpsAgentInput.provider` is populated by
+ * `lib/surge/buildSurgeGeoOpsAgentInput.ts` (`GEOOPS_PROVIDER` ?? `AI_PROVIDER`).
+ * The deterministic path below remains the default until Member 3 wires a
+ * validated model + optional tool loop.
+ */
+
 import {
   validateSurgeGeoOpsAgentOutput,
   type Coordinates,
@@ -514,9 +523,8 @@ function buildSummary(
 export async function runSurgeGeoOpsAgent(
   input: RunSurgeGeoOpsAgentInput
 ): Promise<SurgeGeoOpsAgentOutput> {
-  // provider="gemma" and provider="featherless" intentionally use the same
-  // deterministic implementation for now. Model-backed GeoOps can be added
-  // later without changing the backend-facing function signature.
+  // `input.provider` is set for integration; model-backed GeoOps replaces this
+  // deterministic implementation when ready (same public signature).
   void input.provider;
 
   const incidents = withIds(input.activeIncidents);
