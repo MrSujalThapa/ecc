@@ -55,6 +55,91 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       "Critical emergency without exact location. The agent should ask exact location once before tool lookup or escalation handoff.",
   },
   {
+    id: "agentic-vehicle-theft-turn-1",
+    name: "Vehicle theft reported, safety unknown",
+    mode: "normal",
+    latestTranscript: "My car got stolen.",
+    languageHint: null,
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "vehicle_theft",
+      operator_required: false,
+      missing_fields: [
+        "caller_safety",
+        "last_seen_location",
+        "vehicle_description",
+        "license_plate",
+        "time_stolen",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "Are you safe, and where was the car last seen?",
+    },
+    expectedCallerResponse:
+      "Are you safe, and where was the car last seen?",
+    notes:
+      "Vehicle theft should start report intake. Ask about safety or last seen location, and do not imply police or other help is already on the way.",
+  },
+  {
+    id: "agentic-vehicle-theft-turn-2-safe",
+    name: "Vehicle theft caller confirms safety",
+    mode: "normal",
+    latestTranscript: "Yes, I am safe.",
+    languageHint: null,
+    transcriptHistory: [
+      "AI: Tell me the emergency.",
+      "Caller: My car got stolen.",
+      "AI: Are you safe, and where was the car last seen?",
+    ],
+    currentIncident: {
+      urgency: "non_emergency",
+      incident_type: "vehicle_theft",
+      operator_required: false,
+      missing_fields: [
+        "caller_safety",
+        "last_seen_location",
+        "vehicle_description",
+        "license_plate",
+        "time_stolen",
+        "callback_number",
+      ],
+    },
+    currentCallSession: {
+      should_escalate: false,
+      next_question:
+        "Are you safe, and where was the car last seen?",
+    },
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "vehicle_theft",
+      operator_required: false,
+      collected_fields: { caller_safe: true },
+      missing_fields: [
+        "last_seen_location",
+        "vehicle_description",
+        "license_plate",
+        "time_stolen",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "What is the vehicle make, model, color, and license plate?",
+    },
+    expectedCallerResponse:
+      "I'm going to gather the key information now. What is the vehicle make, model, color, and license plate?",
+    notes:
+      "After the caller confirms they are safe, continue vehicle theft intake. Do not mark critical, transfer, or say help is on the way without backend/operator confirmation.",
+  },
+  {
     id: "agentic-child-kidnapping-turn-1",
     name: "Child kidnapping reported, location missing",
     mode: "normal",

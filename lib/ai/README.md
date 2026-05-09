@@ -130,6 +130,11 @@ The agent prompt requires providers to preserve known `urgency`,
 `missing_fields`. It must not ask for details already present in
 `transcriptHistory`, the current incident, or the current call session.
 
+Caller-facing responses must not imply dispatch has occurred unless backend
+state or an operator has confirmed it. For example, avoid "help is on the way"
+for report-intake cases like safe vehicle theft; collect details and escalate
+only if danger, policy, or operator state requires it.
+
 ## Mock examples — sanity check the wiring
 
 ```ts
