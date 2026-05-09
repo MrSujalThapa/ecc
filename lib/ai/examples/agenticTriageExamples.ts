@@ -209,19 +209,19 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-medical-gate3-help",
-        tool: "nearest_help_point_lookup",
+        tool: "responder_lookup",
         args: {
+          incident_type: "medical_emergency",
           location_text: "Gate 3",
-          help_point_types: ["medical_tent", "police_tent", "security_tent"],
           mode: "world_cup",
         },
         reason:
-          "Nearest medical/security help point context may help the operator response.",
+          "Responder context may help the operator prioritize a medical emergency near Gate 3.",
         safety_level: "read_only",
       },
     ],
     notes:
-      "Medical collapse is critical. Depending on confirmed location detail, V2 may ask exact location then escalate, or escalate immediately with event-zone and help-point context.",
+      "Medical collapse is critical. Depending on confirmed location detail, V2 may ask exact location then escalate, or escalate immediately with event-zone and responder context. Nearest help-point lookup is future-only and not an active safe tool.",
   },
   {
     id: "agentic-gas-smell-earthquake-king-street",
@@ -245,19 +245,19 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-gas-king-context",
-        tool: "context_lookup",
+        tool: "event_zone_lookup",
         args: {
-          context_type: "disaster_notes",
-          query: "earthquake gas smell King Street blocked roads safety notes",
+          location_text: "King Street",
           mode: "disaster",
+          context_focus: "earthquake gas smell blocked roads",
         },
         reason:
-          "Disaster context, blocked-road notes, or safety notes may be useful for operator prioritization.",
+          "Disaster event-zone context may help operator prioritization near King Street.",
         safety_level: "read_only",
       },
     ],
     notes:
-      "Gas smell after earthquake should escalate. Tool requests are informational only; backend executes and validates any context lookup.",
+      "Gas smell after earthquake should escalate. Tool requests are informational only; context lookup is future-only and not an active safe tool.",
   },
   {
     id: "agentic-trapped-person-blocked-road",
@@ -291,19 +291,19 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-trapped-route",
-        tool: "route_between_points",
+        tool: "responder_lookup",
         args: {
-          from: "nearest_available_responder",
-          to: "confirmed_incident_coordinates",
-          avoid_context: ["blocked_roads"],
+          incident_type: "trapped_person",
+          mode: "disaster",
+          route_planning_context: "blocked_roads",
         },
         reason:
-          "Planned second-pass request after backend confirms coordinates and responder context.",
+          "Responder context can support future route planning after backend confirms coordinates.",
         safety_level: "read_only",
       },
     ],
     notes:
-      "Route request is a planned second-pass request only. In a real two-pass flow, route_between_points should wait for confirmed coordinates/tool context.",
+      "Responder lookup is active and safe. Route planning remains future-only; route_between_points should not be emitted until the schema supports it and backend has confirmed coordinates/tool context.",
   },
   {
     id: "agentic-lost-child-fan-zone",
@@ -326,24 +326,19 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-lost-child-help",
-        tool: "nearest_help_point_lookup",
+        tool: "responder_lookup",
         args: {
+          incident_type: "missing_child",
           location_text: "fan zone",
-          help_point_types: [
-            "lost_and_found",
-            "police_tent",
-            "security_tent",
-            "tourist_help",
-          ],
           mode: "world_cup",
         },
         reason:
-          "Lost child requires escalation and nearby lost-and-found/security context.",
+          "Lost child requires escalation and responder/security context.",
         safety_level: "read_only",
       },
     ],
     notes:
-      "Lost child is high risk in event mode. Agent should escalate and request event/help-point context without directing final action itself.",
+      "Lost child is high risk in event mode. Agent should escalate and request event-zone/responder context without directing final action itself. Nearest help-point lookup is future-only and not an active safe tool.",
   },
   {
     id: "agentic-crowd-pushing-stadium-gate",
@@ -366,14 +361,14 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-crowd-gate-context",
-        tool: "context_lookup",
+        tool: "event_zone_lookup",
         args: {
-          context_type: "event_safety_notes",
-          query: "crowd pushing stadium gate safety operator guidance",
+          location_text: "stadium gate",
           mode: "world_cup",
+          context_focus: "crowd safety operator review",
         },
         reason:
-          "Crowd safety and event-zone context can help operator review and prioritization.",
+          "Event-zone crowd context can help operator review and prioritization.",
         safety_level: "read_only",
       },
     ],
@@ -401,18 +396,18 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       },
       {
         id: "tr-es-transit-help",
-        tool: "nearest_help_point_lookup",
+        tool: "event_zone_lookup",
         args: {
           location_text: "train station",
-          help_point_types: ["tourist_help", "transit_node", "police_tent"],
           mode: "world_cup",
+          context_focus: "tourist help and transit support",
         },
         reason:
-          "Nearest tourist/transit help point can support a safe caller response.",
+          "Event-zone transit context can support a safe caller response.",
         safety_level: "read_only",
       },
     ],
     notes:
-      "V2 output should set language fields such as detected_language='es' and caller_response_language='es' when feasible.",
+      "V2 output should set language fields such as detected_language='es' and caller_response_language='es' when feasible. Nearest help-point lookup is future-only and not an active safe tool.",
   },
 ];
