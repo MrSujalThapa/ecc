@@ -1,0 +1,63 @@
+import type { Incident } from "@/lib/types/domain";
+import type { AppMode } from "@/lib/types/enums";
+
+/** Row payload for `incidents` insert/update (Postgres column names). */
+export const incidentToDb = (i: Incident): Record<string, unknown> => ({
+  public_id: i.public_id,
+  updated_at: i.updated_at,
+  mode: i.mode,
+  urgency: i.urgency,
+  incident_type: i.incident_type,
+  status: i.status,
+  operator_required: i.operator_required,
+  assigned_operator: i.assigned_operator,
+  control_state: i.control_state,
+  ai_active: i.ai_active,
+  location_status: i.location_status,
+  location_confidence: i.location_confidence,
+  location: i.location,
+  coordinates: i.coordinates,
+  summary: i.summary,
+  collected_fields: i.collected_fields,
+  missing_fields: i.missing_fields,
+  custom_fields: i.custom_fields,
+  recommended_action: i.recommended_action,
+  priority_score: i.priority_score,
+  cluster_id: i.cluster_id,
+  transcript_url: i.transcript_url,
+  audio_url: i.audio_url,
+  last_updated_by: i.last_updated_by,
+});
+
+export const newIncidentInsertRow = (
+  id: string,
+  mode: AppMode,
+  t: string
+): Record<string, unknown> => ({
+  id,
+  public_id: `INC-${id.slice(0, 8)}`,
+  created_at: t,
+  updated_at: t,
+  mode,
+  urgency: "unknown",
+  incident_type: "unknown",
+  status: "active_call",
+  operator_required: null,
+  assigned_operator: null,
+  control_state: "ai_leading",
+  ai_active: true,
+  location_status: "unknown",
+  location_confidence: null,
+  location: null,
+  coordinates: null,
+  summary: null,
+  collected_fields: {},
+  missing_fields: [],
+  custom_fields: [],
+  recommended_action: null,
+  priority_score: null,
+  cluster_id: null,
+  transcript_url: null,
+  audio_url: null,
+  last_updated_by: "system",
+});
