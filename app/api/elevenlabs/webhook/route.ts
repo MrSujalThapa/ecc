@@ -177,7 +177,7 @@ const getBaseUrl = (request: Request): string => {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export const POST = async (request: Request): Promise<NextResponse> => {
+export const POST = async (request: Request): Promise<NextResponse | Response> => {
   // Read raw body for signature verification
   const rawBody = await request.text();
 
