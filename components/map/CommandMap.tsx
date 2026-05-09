@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { AppMode, Incident, Responder, SurgeCluster } from "@/lib/types";
@@ -10,6 +10,7 @@ import { EventLayer } from "@/components/map/EventLayer";
 import { HeatmapLayer } from "@/components/map/HeatmapLayer";
 import { MapLayerControls } from "@/components/map/MapLayerControls";
 import { urgencyMarkerClass } from "@/lib/map/incidentStyling";
+import { isValidCoordinates } from "@/lib/map/geojson";
 import {
   defaultMapLayerVisibility,
   disasterMapLayerIds,
@@ -204,16 +205,43 @@ export function CommandMap({
 
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-  const layerVisibility: MapLayerVisibility = {
-    ...defaultMapLayerVisibility,
-    ...Object.fromEntries(
-      disasterMapLayerIds.map((layerId) => [layerId, mode === "disaster"]),
-    ),
-    eventLayers: mode === "world_cup",
-    ...layerOverrides,
-  };
+  /** Disaster-only overlays (heatmap, zones, roads); off in normal. Incident clusters are core. */
+  const disasterStackApplicable =
+    mode === "disaster" || mode === "world_cup" || mode === "all";
+  /** Event overlays: world_cup or queue "All modes". */
+  const eventLayersApplicable = mode === "world_cup" || mode === "all";
+
+  const layerVisibility: MapLayerVisibility = useMemo(() => {
+    const base: MapLayerVisibility = {
+      ...defaultMapLayerVisibility,
+      ...Object.fromEntries(
+        disasterMapLayerIds.map((layerId) => [
+          layerId,
+          disasterStackApplicable,
+        ]),
+      ),
+      eventLayers: eventLayersApplicable,
+    };
+    const merged: MapLayerVisibility = { ...base, ...layerOverrides };
+    if (!disasterStackApplicable) {
+      for (const id of disasterMapLayerIds) {
+        merged[id] = false;
+      }
+    }
+    if (!eventLayersApplicable) {
+      merged.eventLayers = false;
+    }
+    return merged;
+  }, [disasterStackApplicable, eventLayersApplicable, layerOverrides]);
 
   const toggleLayer = (layer: MapLayerId) => {
+    if (disasterMapLayerIds.includes(layer) && !disasterStackApplicable) {
+      return;
+    }
+    if (layer === "eventLayers" && !eventLayersApplicable) {
+      return;
+    }
+
     const nextValue = !layerVisibility[layer];
     if (layer === "clusters" && !nextValue) {
       onClearCluster();
@@ -371,6 +399,34 @@ export function CommandMap({
     });
   }, [incidents, mapReady, selectedIncidentId]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !mapReady || !selectedClusterId) {
+      return;
+    }
+
+    setLayerOverrides((current) =>
+      current.clusters === true ? current : { ...current, clusters: true },
+    );
+
+    const cluster = clusters.find((c) => c.cluster_id === selectedClusterId);
+    const center = cluster?.center;
+
+    if (!center || !isValidCoordinates(center)) {
+      return;
+    }
+
+    map.flyTo({
+      center: [center.lng, center.lat],
+      zoom: Math.max(map.getZoom(), 14.4),
+      pitch: 64,
+      bearing: -24,
+      duration: 700,
+      essential: true,
+    });
+  }, [clusters, mapReady, selectedClusterId]);
+
   if (!token) {
     return (
       <CommandMapOffline
@@ -442,6 +498,7 @@ export function CommandMap({
       />
 
       <MapLayerControls
+        mode={mode}
         visibility={layerVisibility}
         onToggleLayer={toggleLayer}
       />

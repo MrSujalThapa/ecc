@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { ElevenLabsVoiceSimulator } from "@/components/dev/ElevenLabsVoiceSimulator";
-import { OperatorFlowSimulator } from "@/components/dev/OperatorFlowSimulator";
+import { VoiceSimSimulators } from "@/components/dev/VoiceSimSimulators";
 
 export default function VoiceSimPage() {
   return (
@@ -12,16 +11,27 @@ export default function VoiceSimPage() {
         >
           ← Home
         </Link>
-        <h1 className="mt-4 text-2xl font-semibold tracking-tight">E2E voice + operator simulators</h1>
+        <h1 className="mt-4 text-2xl font-semibold tracking-tight">
+          E2E voice + operator simulators
+        </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Voice block mimics ElevenLabs transcript payloads against <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">/api/call/*</code>. The operator block loads incidents via{" "}
-          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">GET /api/dev/incidents</code> (Supabase when the service role is set, otherwise the in-memory demo store) and drives{" "}
-          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">/api/operator/*</code>.
+          Voice block mimics ElevenLabs transcript payloads against{" "}
+          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">
+            /api/call/*
+          </code>
+          . The operator block loads incidents via{" "}
+          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">
+            GET /api/dev/incidents
+          </code>{" "}
+          (Supabase when the service role is set, otherwise the in-memory demo
+          store) and drives{" "}
+          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">
+            /api/operator/*
+          </code>
+          .
         </p>
       </header>
-      <ElevenLabsVoiceSimulator />
-      <div className="mx-auto my-12 h-px w-full max-w-3xl bg-zinc-200 dark:bg-zinc-800" />
-      <OperatorFlowSimulator />
+      <VoiceSimSimulators />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   applyIncidentPatch,
 } from "@/lib/server/merge-triage-output";
 import {
+  appendSeedTranscriptEvents,
   appendTranscriptEvent,
   createCallSessionForIncident,
   createEmptyIncident,
@@ -68,7 +69,12 @@ import type { AppMode, OperatorTransferStatus } from "@/lib/types/enums";
 import type { Json } from "@/lib/types/json";
 import { callSessionToDb, newCallSessionInsertRow } from "./call-session-row";
 import { incidentToDb, newIncidentInsertRow } from "./incident-row";
-import { mapCallSessionRow, mapIncidentRow, mapTranscriptRow } from "./mappers";
+import {
+  mapCallSessionRow,
+  mapEventLayerRow,
+  mapIncidentRow,
+  mapTranscriptRow,
+} from "./mappers";
 
 const insertAudit = async (
   client: SupabaseClient,
@@ -359,6 +365,9 @@ export const repositoryCallStart = async (
 
 // --- call / turn ---
 
+/** Matches `LiveTranscriptPanel` styling for non-caller lines. */
+const AI_TRANSCRIPT_SPEAKER = "ai" as const;
+
 const appendTranscriptSupabase = async (
   client: SupabaseClient,
   input: {
@@ -523,6 +532,20 @@ export const repositoryCallTurn = async (
       action: "call_turn_final",
       patch: buildTriageAuditPatch(source, triageOutcome),
     });
+    const agentText = (aiOutput.say_to_caller ?? "").trim();
+    if (agentText) {
+      appendTranscriptEvent({
+        id: newId(),
+        incident_id,
+        call_session_id,
+        speaker: AI_TRANSCRIPT_SPEAKER,
+        text: agentText,
+        is_final: true,
+        language: null,
+        translated_text: null,
+        created_at: isoNow(),
+      });
+    }
     return {
       say_to_caller: aiOutput.say_to_caller,
       incident: getIncident(incident_id)!,
@@ -620,6 +643,19 @@ export const repositoryCallTurn = async (
     action: "call_turn_final",
     patch: buildTriageAuditPatch(source, triageOutcome),
   });
+
+  const agentText = (aiOutput.say_to_caller ?? "").trim();
+  if (agentText) {
+    await appendTranscriptSupabase(client, {
+      incident_id,
+      call_session_id,
+      speaker: AI_TRANSCRIPT_SPEAKER,
+      text: agentText,
+      is_final: true,
+      language: null,
+      translated_text: null,
+    });
+  }
 
   const { data: fi } = await client
     .from("incidents")
@@ -1001,6 +1037,87 @@ export const repositoryOperatorResolve = async (
 
 // --- simulate ---
 
+type TranscriptSnippetFields = {
+  speaker: string;
+  text: string;
+  is_final: boolean;
+  created_at: string;
+};
+
+const parseRecentTranscriptSnippet = (raw: Json): TranscriptSnippetFields | null => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  if (typeof o.speaker !== "string" || typeof o.text !== "string") {
+    return null;
+  }
+  const is_final = typeof o.is_final === "boolean" ? o.is_final : true;
+  const created_at = typeof o.created_at === "string" ? o.created_at : isoNow();
+  return { speaker: o.speaker, text: o.text, is_final, created_at };
+};
+
+/**
+ * Mirrors `appendTranscriptSupabase`: inserts new `transcript_events` rows so the
+ * dashboard `LiveTranscriptPanel` (anon `transcript_events` select) sees simulate seeds.
+ */
+const persistSimulateSeedTranscriptEvents = async (
+  client: ReturnType<typeof getServiceRoleClient>,
+  incidentId: string,
+  callSessionId: string,
+  priorRecentLen: number,
+  mergedRecent: Json[],
+): Promise<void> => {
+  const newSnippets = mergedRecent.slice(priorRecentLen);
+  if (newSnippets.length === 0) {
+    return;
+  }
+
+  const events: TranscriptEvent[] = [];
+  for (const raw of newSnippets) {
+    const p = parseRecentTranscriptSnippet(raw);
+    if (!p) {
+      continue;
+    }
+    events.push({
+      id: newId(),
+      incident_id: incidentId,
+      call_session_id: callSessionId,
+      speaker: p.speaker,
+      text: p.text,
+      is_final: p.is_final,
+      language: null,
+      translated_text: null,
+      created_at: p.created_at,
+    });
+  }
+  if (events.length === 0) {
+    return;
+  }
+
+  if (!client) {
+    appendSeedTranscriptEvents(events);
+    return;
+  }
+
+  const { error } = await client.from("transcript_events").insert(
+    events.map((e) => ({
+      id: e.id,
+      incident_id: e.incident_id,
+      call_session_id: e.call_session_id,
+      speaker: e.speaker,
+      text: e.text,
+      is_final: e.is_final,
+      language: e.language,
+      translated_text: e.translated_text,
+      created_at: e.created_at,
+    })),
+  );
+  if (error) {
+    throw new Error(error.message);
+  }
+};
+
 const persistSimulatedSeedEnrichment = async (
   client: ReturnType<typeof getServiceRoleClient>,
   r: {
@@ -1010,12 +1127,27 @@ const persistSimulatedSeedEnrichment = async (
     call_session: CallSession;
   },
   mode: AppMode,
-  seedIndex: number
+  seedIndex: number,
+  disasterBatch?: { batchLocalIndex: number; batchSize: number }
 ): Promise<{ incident: Incident; call_session: CallSession }> => {
-  const merged = mergeSimulatedSurgeRow(r.incident, r.call_session, mode, seedIndex);
+  const priorRecentLen = r.call_session.recent_transcript.length;
+  const merged = mergeSimulatedSurgeRow(
+    r.incident,
+    r.call_session,
+    mode,
+    seedIndex,
+    disasterBatch ? { disasterBatch } : undefined,
+  );
   if (!client) {
     saveIncident(merged.incident);
     saveCallSession(merged.call_session);
+    await persistSimulateSeedTranscriptEvents(
+      client,
+      r.incident_id,
+      r.call_session_id,
+      priorRecentLen,
+      merged.call_session.recent_transcript,
+    );
     return merged;
   }
   const { error: iu } = await client
@@ -1032,6 +1164,13 @@ const persistSimulatedSeedEnrichment = async (
   if (su) {
     throw new Error(su.message);
   }
+  await persistSimulateSeedTranscriptEvents(
+    client,
+    r.incident_id,
+    r.call_session_id,
+    priorRecentLen,
+    merged.call_session.recent_transcript,
+  );
   return merged;
 };
 
@@ -1062,10 +1201,12 @@ const repositorySimulateSeed = async (input: {
   const requested = input.batch_size ?? Math.min(5, input.maxCap);
   const count = Math.min(Math.max(0, requested), input.maxCap);
   const { mode } = input;
+  const disasterBatchFor = (batchLocalIndex: number) =>
+    mode === "disaster" ? { batchLocalIndex, batchSize: count } : undefined;
 
   for (let i = 0; i < skip; i++) {
     const r = await repositoryCallStart({ mode });
-    await persistSimulatedSeedEnrichment(client, r, mode, i);
+    await persistSimulatedSeedEnrichment(client, r, mode, i, disasterBatchFor(i));
   }
 
   const created_incidents: Incident[] = [];
@@ -1074,7 +1215,13 @@ const repositorySimulateSeed = async (input: {
   if (!client) {
     for (let i = 0; i < count; i++) {
       const r = await repositoryCallStart({ mode });
-      const merged = await persistSimulatedSeedEnrichment(client, r, mode, skip + i);
+      const merged = await persistSimulatedSeedEnrichment(
+        client,
+        r,
+        mode,
+        skip + i,
+        disasterBatchFor(i),
+      );
       created_incidents.push(merged.incident);
       created_call_sessions.push(merged.call_session);
       newAuditLog({
@@ -1089,7 +1236,13 @@ const repositorySimulateSeed = async (input: {
 
   for (let i = 0; i < count; i++) {
     const r = await repositoryCallStart({ mode });
-    const merged = await persistSimulatedSeedEnrichment(client, r, mode, skip + i);
+    const merged = await persistSimulatedSeedEnrichment(
+      client,
+      r,
+      mode,
+      skip + i,
+      disasterBatchFor(i),
+    );
     created_incidents.push(merged.incident);
     created_call_sessions.push(merged.call_session);
     await insertAudit(client, {
@@ -1125,10 +1278,15 @@ export const repositorySimulateWorldCup = async (input: {
     mode: "world_cup",
     ...input,
   });
+  // Pull event_layers from Supabase when configured (seeded by
+  // `20260509200000_seed_event_layers.sql`); fall back to [] for
+  // in-memory dev / vitest runs that don't bind Supabase.
+  const eventLayerRecords = await listEventLayerRecordsForMode("world_cup");
+  const event_layers = eventLayerRecords.map(mapEventLayerRow);
   return {
     created_incidents,
     created_call_sessions,
-    event_layers: [],
+    event_layers,
     mode: "world_cup",
   };
 };

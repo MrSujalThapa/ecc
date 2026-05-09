@@ -147,6 +147,11 @@ export const appendTranscriptEvent = (event: TranscriptEvent): void => {
   });
 };
 
+/** For simulate seeds: `recent_transcript` is already merged; only sync `transcriptEvents`. */
+export const appendSeedTranscriptEvents = (events: TranscriptEvent[]): void => {
+  state.transcriptEvents.push(...events);
+};
+
 export const getTranscriptHistoryForSession = (
   callSessionId: string
 ): TranscriptEvent[] =>

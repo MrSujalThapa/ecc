@@ -85,13 +85,14 @@ export function CallControlPanel({
 
   function handleTakeover() {
     void runAction("takeover", async () => {
-      const result = await operatorActions.takeOverIncident({
+      await operatorActions.takeOverIncident({
         incident_id: incident.id,
         operator_id: operatorId,
       });
 
       return {
-        message: `Take over requested. Transfer status: ${result.transfer_status}.`,
+        message:
+          "Takeover complete. You are in control of this incident (human active), AI intake is off, and any active call session was closed.",
       };
     });
   }

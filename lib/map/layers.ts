@@ -16,16 +16,17 @@ export const defaultMapLayerVisibility: MapLayerVisibility = {
   incidents: true,
   responders: true,
   heatmap: false,
-  clusters: false,
+  /** Incident cluster circles — core layer (normal + disaster modes). */
+  clusters: true,
   disasterZones: false,
   blockedRoads: false,
   eventLayers: false,
   routeLines: false,
 };
 
+/** Disaster / surge-only overlays; excludes incident clusters (see core). */
 export const disasterMapLayerIds: MapLayerId[] = [
   "heatmap",
-  "clusters",
   "disasterZones",
   "blockedRoads",
 ];

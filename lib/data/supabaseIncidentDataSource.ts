@@ -7,6 +7,15 @@ import { apiIncidentDataSource } from "./apiIncidentDataSource";
 
 const MAX_INCIDENTS = 200;
 
+/** Stable key for dedupe + realtime merge (avoids duplicate rows when UUID casing/types differ). */
+const canonicalIncidentId = (id: unknown): string | null => {
+  if (id === null || id === undefined) {
+    return null;
+  }
+  const s = String(id).trim();
+  return s.length === 0 ? null : s.toLowerCase();
+};
+
 export type SupabaseIncidentSourceStatus =
   | "unavailable"
   | "connected"
@@ -44,7 +53,7 @@ async function fetchSupabaseIncidents(): Promise<IncidentFeedResult> {
       throw new Error(error.message);
     }
 
-    const incidents = (data ?? []) as unknown as Incident[];
+    const incidents = normalizeIncidents((data ?? []) as unknown as Incident[]);
 
     if (incidents.length === 0) {
       return asFeedResult(
@@ -72,9 +81,11 @@ async function fetchSupabaseIncidents(): Promise<IncidentFeedResult> {
 function normalizeIncidents(incidents: Incident[]): Incident[] {
   const map = new Map<string, Incident>();
   incidents.forEach((incident) => {
-    if (incident?.id) {
-      map.set(incident.id, incident);
+    const id = canonicalIncidentId(incident?.id);
+    if (!id) {
+      return;
     }
+    map.set(id, { ...incident, id });
   });
   return Array.from(map.values()).sort((a, b) => {
     const aTime = Date.parse(a.created_at ?? "") || 0;
@@ -117,7 +128,11 @@ export function createSupabaseIncidentDataSource(options?: {
             throw new Error(error.message);
           }
 
-          applyChange((data ?? []) as unknown as Incident[]);
+          const rows = (data ?? []) as unknown as Incident[];
+          // Match `fetchSupabaseIncidents`: empty table uses schema-compatible demo rows.
+          applyChange(
+            rows.length === 0 ? [...dashboardFallbackIncidents] : rows,
+          );
         } catch (err) {
           const error =
             err instanceof Error ? err : new Error("Realtime bootstrap failed");
@@ -135,16 +150,22 @@ export function createSupabaseIncidentDataSource(options?: {
             try {
               const eventType = payload.eventType;
               const row = (payload.new ?? payload.old) as unknown as Incident;
-              if (!row?.id) return;
-
-              if (eventType === "DELETE") {
-                applyChange(current.filter((i) => i.id !== row.id));
+              const rowId = canonicalIncidentId(row?.id);
+              if (!rowId) {
                 return;
               }
 
+              if (eventType === "DELETE") {
+                applyChange(
+                  current.filter((i) => canonicalIncidentId(i.id) !== rowId),
+                );
+                return;
+              }
+
+              const incoming = payload.new as unknown as Incident;
               applyChange([
-                ...current.filter((i) => i.id !== row.id),
-                payload.new as unknown as Incident,
+                ...current.filter((i) => canonicalIncidentId(i.id) !== rowId),
+                { ...incoming, id: rowId },
               ]);
             } catch (err) {
               const error =

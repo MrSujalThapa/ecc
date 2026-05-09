@@ -18,13 +18,20 @@ import {
 import { CommandMap } from "@/components/map/CommandMap";
 import { TopBar } from "@/components/dashboard/TopBar";
 import { DemoControls } from "@/components/dashboard/DemoControls";
+import {
+  DashboardPersonaProvider,
+  useDashboardPersona,
+} from "@/components/dashboard/DashboardPersonaContext";
 import { apiOperatorActions } from "@/lib/data/apiOperatorActions";
 import { respondersClient } from "@/lib/data/respondersClient";
 import {
   createSupabaseIncidentDataSource,
   type SupabaseIncidentSourceStatus,
 } from "@/lib/data/supabaseIncidentDataSource";
-import { getDisplaySurgeClusters } from "@/lib/map/clustering";
+import {
+  findSurgeClusterForIncident,
+  getDisplaySurgeClusters,
+} from "@/lib/map/clustering";
 import type {
   IncidentFeedResult,
   IncidentFeedState,
@@ -55,6 +62,37 @@ const defaultQueueFilters: IncidentQueueFilters = {
   assignedOperator: "all",
 };
 
+function IncidentFeedBanner({
+  loadMessage,
+  loadState,
+}: {
+  loadMessage: string | null;
+  loadState: LoadState;
+}) {
+  const { visibility } = useDashboardPersona();
+
+  if (!loadMessage) {
+    return null;
+  }
+
+  if (!visibility.showVerboseIncidentFeedBanner && loadState !== "error") {
+    return null;
+  }
+
+  return (
+    <div
+      className={`border-b px-5 py-2 text-sm ${
+        loadState === "error"
+          ? "border-[#d00000]/35 bg-[#000814]/12 text-[#dbe7f3]"
+          : "border-[rgba(112,214,255,0.18)] bg-[#06111f] text-[#8b9bb0]"
+      }`}
+      role={loadState === "error" ? "alert" : "status"}
+    >
+      {loadMessage}
+    </div>
+  );
+}
+
 export function DashboardShell() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<
@@ -73,6 +111,8 @@ export function DashboardShell() {
   const [callSessionsForSelected, setCallSessionsForSelected] = useState<
     CallSession[]
   >([]);
+  /** Avoid TopBar hydration mismatch: SSR + first client paint must agree before tying disabled to async loadState. */
+  const [clientMounted, setClientMounted] = useState(false);
   const selectionRef = useRef<string | null>(null);
 
   const incidentDataSource = useMemo(
@@ -133,6 +173,18 @@ export function DashboardShell() {
   }, [incidentDataSource]);
 
   useEffect(() => {
+    setClientMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // When `subscribeToIncidents` exists, that path already bootstraps from Supabase.
+    // Running `getInitialIncidents()` in parallel can finish later with a different source
+    // (e.g. API / in-memory dev list after a thrown client fetch) and overwrite the live
+    // feed, so the queue shows more incidents than rows in `public.incidents`.
+    if (incidentDataSource.subscribeToIncidents) {
+      return;
+    }
+
     let ignore = false;
 
     const run = async () => {
@@ -216,6 +268,22 @@ export function DashboardShell() {
             );
             setLoadState("error");
           });
+          void (async () => {
+            try {
+              const result = await incidentDataSource.getInitialIncidents();
+              startTransition(() => {
+                applyIncidentFeedResult(
+                  result,
+                  setIncidents,
+                  setUsingFallback,
+                  setLoadState,
+                  setLoadMessage,
+                );
+              });
+            } catch {
+              // keep error banner; incidents unchanged
+            }
+          })();
         },
       );
     } catch (error) {
@@ -282,6 +350,14 @@ export function DashboardShell() {
     () => getDisplaySurgeClusters(visibleIncidents),
     [visibleIncidents],
   );
+
+  const clusterForSelectedIncident = useMemo(() => {
+    if (!selectedIncident) {
+      return null;
+    }
+    return findSurgeClusterForIncident(selectedIncident, visibleClusters);
+  }, [selectedIncident, visibleClusters]);
+
   const selectedCluster =
     selectedClusterId === null
       ? null
@@ -351,39 +427,29 @@ export function DashboardShell() {
     null;
 
   return (
-    <main className="flex h-screen min-h-[720px] flex-col overflow-hidden bg-[#000814] text-[#dbe7f3]">
-      <TopBar
-        incidents={visibleIncidents}
-        mode={queueFilters.mode}
-        onModeChange={setMode}
-        usingFallback={usingFallback}
-        realtimeConnected={realtimeStatus === "connected"}
-        onRefresh={loadIncidents}
-        isRefreshing={loadState === "loading"}
-      />
+    <DashboardPersonaProvider>
+      <main className="flex h-screen min-h-[720px] flex-col overflow-hidden bg-[#000814] text-[#dbe7f3]">
+        <TopBar
+          incidents={visibleIncidents}
+          mode={queueFilters.mode}
+          onModeChange={setMode}
+          usingFallback={usingFallback}
+          realtimeConnected={realtimeStatus === "connected"}
+          onRefresh={loadIncidents}
+          isRefreshing={clientMounted && loadState === "loading"}
+        />
 
-      {loadMessage ? (
-        <div
-          className={`border-b px-5 py-2 text-sm ${
-            loadState === "error"
-              ? "border-[#d00000]/35 bg-[#000814]/12 text-[#dbe7f3]"
-              : "border-[rgba(112,214,255,0.18)] bg-[#06111f] text-[#8b9bb0]"
-          }`}
-          role={loadState === "error" ? "alert" : "status"}
-        >
-          {loadMessage}
-        </div>
-      ) : null}
+        <IncidentFeedBanner loadMessage={loadMessage} loadState={loadState} />
 
-      <DemoControls
-        onAfterSimulation={refetchIncidentsQuiet}
-        onRefreshIncidents={loadIncidents}
-        onResetView={resetDashboardView}
-        mode={queueFilters.mode}
-        setMode={setMode}
-      />
+        <DemoControls
+          onAfterSimulation={refetchIncidentsQuiet}
+          onRefreshIncidents={loadIncidents}
+          onResetView={resetDashboardView}
+          mode={queueFilters.mode}
+          setMode={setMode}
+        />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)_360px] xl:grid-cols-[360px_minmax(0,1fr)_380px]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)_360px] xl:grid-cols-[360px_minmax(0,1fr)_380px]">
         <IncidentQueue
           incidents={visibleIncidents}
           allIncidents={incidents}
@@ -429,9 +495,16 @@ export function DashboardShell() {
             operatorActions={apiOperatorActions}
             onActionComplete={handleAfterCommand}
             activeCallSession={activeCallSession}
+            onViewCluster={
+              clusterForSelectedIncident
+                ? () => selectCluster(clusterForSelectedIncident.cluster_id)
+                : undefined
+            }
+            mapClusterId={clusterForSelectedIncident?.cluster_id ?? null}
           />
         )}
-      </div>
-    </main>
+        </div>
+      </main>
+    </DashboardPersonaProvider>
   );
 }

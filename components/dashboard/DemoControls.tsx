@@ -6,8 +6,9 @@ import {
   postSimulateDisaster,
   postSimulateWorldCup,
 } from "@/lib/data/simulationClient";
+import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 
-const DEFAULT_BATCH_SIZE = 5;
+const DEFAULT_SIMULATE_BATCH_SIZE = 50;
 
 type DemoControlsProps = {
   /** Refetch incident list after a successful simulation (Member 4: refetch after trigger). */
@@ -25,6 +26,8 @@ export const DemoControls = ({
   mode,
   setMode,
 }: DemoControlsProps) => {
+  const { visibility } = useDashboardPersona();
+
   const [simKind, setSimKind] = useState<
     "idle" | "disaster" | "world_cup" | "refresh" | "clear"
   >("idle");
@@ -39,7 +42,7 @@ export const DemoControls = ({
     setSimKind("disaster");
     setBanner(null);
     const r = await postSimulateDisaster({
-      batch_size: DEFAULT_BATCH_SIZE,
+      batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
@@ -63,7 +66,7 @@ export const DemoControls = ({
     setSimKind("world_cup");
     setBanner(null);
     const r = await postSimulateWorldCup({
-      batch_size: DEFAULT_BATCH_SIZE,
+      batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
@@ -131,6 +134,10 @@ export const DemoControls = ({
     onResetView();
     setBanner({ tone: "ok", text: "Dashboard view reset." });
   }, [onResetView]);
+
+  if (!visibility.showDemoControls) {
+    return null;
+  }
 
   return (
     <div

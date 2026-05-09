@@ -1,90 +1,45 @@
 import type { EventLayer } from "@/lib/types";
+import type { Json } from "@/lib/types/json";
+import {
+  EVENT_ZONES,
+  seedBboxToBlockedRoadLineLngLat,
+  seedBboxToPolygonRingLngLat,
+} from "@/lib/tools/_mockGeo";
 
-export const disasterImpactZones: EventLayer[] = [
-  {
-    id: "impact-zone-downtown-flood",
+const disasterSeeds = EVENT_ZONES.filter((z) => z.modes.includes("disaster"));
+
+const asLayerMetadata = (metadata: Record<string, unknown>): Record<string, Json> =>
+  metadata as Record<string, Json>;
+
+/** Impact polygons aligned with `EVENT_ZONES` / `event_zone_lookup` (disaster). */
+export const disasterImpactZones: EventLayer[] = disasterSeeds
+  .filter((z) => z.layer_type === "impact_zone")
+  .map((z) => ({
+    id: z.layer_id,
     mode: "disaster",
-    layer_type: "impact_zone",
-    name: "Downtown flood impact zone",
+    layer_type: z.layer_type,
+    name: z.name,
     geometry: {
       type: "Polygon",
-      coordinates: [
-        [
-          [-79.402, 43.646],
-          [-79.389, 43.638],
-          [-79.369, 43.646],
-          [-79.371, 43.661],
-          [-79.391, 43.667],
-          [-79.402, 43.646],
-        ],
-      ],
+      coordinates: [seedBboxToPolygonRingLngLat(z.bbox)],
     },
-    metadata: {
-      severity: "high",
-      summary: "Mock flood impact area for disaster dashboard drills.",
-    },
-  },
-  {
-    id: "impact-zone-east-fire",
-    mode: "disaster",
-    layer_type: "impact_zone",
-    name: "East response impact zone",
-    geometry: {
-      type: "Polygon",
-      coordinates: [
-        [
-          [-79.364, 43.653],
-          [-79.351, 43.649],
-          [-79.34, 43.66],
-          [-79.349, 43.671],
-          [-79.366, 43.667],
-          [-79.364, 43.653],
-        ],
-      ],
-    },
-    metadata: {
-      severity: "medium",
-      summary: "Mock fire and medical response area.",
-    },
-  },
-];
+    metadata: asLayerMetadata(z.metadata),
+  }));
 
-export const blockedRoadLayers: EventLayer[] = [
-  {
-    id: "blocked-road-front-st",
+/** Line geometry aligned with disaster `blocked_road` seeds in `EVENT_ZONES`. */
+export const blockedRoadLayers: EventLayer[] = disasterSeeds
+  .filter((z) => z.layer_type === "blocked_road")
+  .map((z) => ({
+    id: z.layer_id,
     mode: "disaster",
-    layer_type: "blocked_road",
-    name: "Front Street closure",
+    layer_type: z.layer_type,
+    name: z.name,
     geometry: {
       type: "LineString",
-      coordinates: [
-        [-79.397, 43.644],
-        [-79.388, 43.645],
-        [-79.378, 43.646],
-        [-79.369, 43.648],
-      ],
+      coordinates: seedBboxToBlockedRoadLineLngLat(z.bbox),
     },
     metadata: {
-      reason: "flooding",
+      ...asLayerMetadata(z.metadata),
       status: "closed",
     },
-  },
-  {
-    id: "blocked-road-jarvis",
-    mode: "disaster",
-    layer_type: "blocked_road",
-    name: "Jarvis Street partial closure",
-    geometry: {
-      type: "LineString",
-      coordinates: [
-        [-79.371, 43.649],
-        [-79.374, 43.656],
-        [-79.377, 43.664],
-      ],
-    },
-    metadata: {
-      reason: "emergency vehicles staged",
-      status: "restricted",
-    },
-  },
-];
+  }));

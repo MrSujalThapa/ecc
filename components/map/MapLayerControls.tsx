@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import type { AppMode } from "@/lib/types";
 import {
   mapLayerLabels,
   type MapLayerId,
@@ -7,41 +9,63 @@ import {
 } from "@/lib/map/layers";
 
 type MapLayerControlsProps = {
+  mode: AppMode | "all";
   visibility: MapLayerVisibility;
   onToggleLayer: (layer: MapLayerId) => void;
 };
 
-const layerGroups: Array<{
+type LayerGroup = {
   title: string;
   description?: string;
   layerIds: MapLayerId[];
   disabled?: boolean;
-}> = [
-  {
-    title: "Core",
-    layerIds: ["incidents", "responders"],
-  },
-  {
-    title: "Disaster",
-    description: "Surge overlays (mode-aware)",
-    layerIds: ["heatmap", "clusters", "disasterZones", "blockedRoads"],
-  },
-  {
-    title: "World Cup",
-    description: "Event infrastructure layers",
-    layerIds: ["eventLayers"],
-  },
-  {
+};
+
+const buildLayerGroups = (mode: AppMode | "all"): LayerGroup[] => {
+  const showDisasterStack =
+    mode === "disaster" || mode === "world_cup" || mode === "all";
+  const showEventLayers = mode === "world_cup" || mode === "all";
+
+  const groups: LayerGroup[] = [
+    {
+      title: "Core",
+      description: "Incidents, responders, and derived cluster markers",
+      layerIds: ["incidents", "responders", "clusters"],
+    },
+  ];
+
+  if (showDisasterStack) {
+    groups.push({
+      title: "Disaster",
+      description: "Heatmap, impact zones, blocked roads (disaster, World Cup, or all modes)",
+      layerIds: ["heatmap", "disasterZones", "blockedRoads"],
+    });
+  }
+
+  if (showEventLayers) {
+    groups.push({
+      title: "World Cup",
+      description: "Event infrastructure layers",
+      layerIds: ["eventLayers"],
+    });
+  }
+
+  groups.push({
     title: "Later",
     layerIds: ["routeLines"],
     disabled: true,
-  },
-];
+  });
+
+  return groups;
+};
 
 export function MapLayerControls({
+  mode,
   visibility,
   onToggleLayer,
 }: MapLayerControlsProps) {
+  const layerGroups = useMemo(() => buildLayerGroups(mode), [mode]);
+
   return (
     <section className="pointer-events-auto absolute right-4 top-24 z-20 w-56 rounded-2xl border border-white/10 bg-[#000814]/85 p-3 text-white shadow-2xl backdrop-blur">
       <div className="mb-2 flex items-center justify-between gap-3">

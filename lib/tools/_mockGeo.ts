@@ -6,6 +6,7 @@
  */
 
 import type { Coordinates, EventZoneLayerType } from "@/lib/ai/toolResults";
+import { disasterSimImpactEventZoneSeeds } from "@/lib/mock/simulate-seed-geometry";
 
 export const TORONTO_CENTER: Coordinates = { lat: 43.6532, lng: -79.3832 };
 
@@ -136,15 +137,8 @@ export const EVENT_ZONES: readonly EventZoneSeed[] = [
     metadata: { hours: "18:00–02:00" },
     modes: ["world_cup"],
   },
-  // Disaster geography
-  {
-    layer_id: "ds-impact-bloor-spadina",
-    name: "Bloor/Spadina Aftershock Impact Zone",
-    layer_type: "impact_zone",
-    bbox: [43.66, -79.412, 43.674, -79.394],
-    metadata: { severity: "moderate" },
-    modes: ["disaster"],
-  },
+  // Disaster geography (impact zones = envelopes of `/api/simulate/disaster` seed coords)
+  ...disasterSimImpactEventZoneSeeds(),
   {
     layer_id: "ds-blocked-road-financial",
     name: "Bay Street Closure",
@@ -162,6 +156,35 @@ export const EVENT_ZONES: readonly EventZoneSeed[] = [
     modes: ["disaster"],
   },
 ];
+
+/**
+ * GeoJSON positions use [lng, lat]. `EventZoneSeed.bbox` is
+ * `[minLat, minLng, maxLat, maxLng]` (same convention as `eventZoneLookup`).
+ */
+export const seedBboxToPolygonRingLngLat = (
+  bbox: [number, number, number, number],
+): [number, number][] => {
+  const [minLat, minLng, maxLat, maxLng] = bbox;
+  return [
+    [minLng, minLat],
+    [maxLng, minLat],
+    [maxLng, maxLat],
+    [minLng, maxLat],
+    [minLng, minLat],
+  ];
+};
+
+/** Center longitude, full latitude span — fits N–S closure boxes like Bay St. */
+export const seedBboxToBlockedRoadLineLngLat = (
+  bbox: [number, number, number, number],
+): [number, number][] => {
+  const [minLat, minLng, maxLat, maxLng] = bbox;
+  const midLng = (minLng + maxLng) / 2;
+  return [
+    [midLng, minLat],
+    [midLng, maxLat],
+  ];
+};
 
 /**
  * Deterministic jitter so unknown geocode text still produces a stable pin.

@@ -1,4 +1,7 @@
+"use client";
+
 import type { Incident } from "@/lib/types";
+import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 import {
   formatIncidentType,
   formatStatusLabel,
@@ -39,6 +42,7 @@ export function IncidentCard({
   selected,
   onSelectIncident,
 }: IncidentCardProps) {
+  const { visibility } = useDashboardPersona();
   const critical = incident.urgency === "critical";
   const modeClass =
     modeBadgeClass[incident.mode] ??
@@ -92,13 +96,17 @@ export function IncidentCard({
         <span className="rounded-full border border-[rgba(112,214,255,0.18)] bg-[#000814] px-2 py-1 capitalize text-[#dbe7f3]">
           {formatStatusLabel(incident.status)}
         </span>
-        <span className={`rounded-full border px-2 py-1 capitalize ${controlClass}`}>
-          {formatStatusLabel(incident.control_state)}
-        </span>
-        <span className="rounded-full border border-[rgba(112,214,255,0.18)] bg-[#000814] px-2 py-1 text-[#dbe7f3]">
-          Score {incident.priority_score ?? "n/a"}
-        </span>
-        {incident.ai_active ? (
+        {visibility.showQueueControlState ? (
+          <span className={`rounded-full border px-2 py-1 capitalize ${controlClass}`}>
+            {formatStatusLabel(incident.control_state)}
+          </span>
+        ) : null}
+        {visibility.showQueuePriorityScore ? (
+          <span className="rounded-full border border-[rgba(112,214,255,0.18)] bg-[#000814] px-2 py-1 text-[#dbe7f3]">
+            Score {incident.priority_score ?? "n/a"}
+          </span>
+        ) : null}
+        {visibility.showQueueAiActiveBadge && incident.ai_active ? (
           <span className="rounded-full border border-[#52b788]/35 bg-[#52b788]/10 px-2 py-1 text-[#dbe7f3]">
             AI active
           </span>
