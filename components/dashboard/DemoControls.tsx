@@ -8,8 +8,7 @@ import {
 } from "@/lib/data/simulationClient";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 
-const DEFAULT_BATCH_SIZE = 5;
-const DEFAULT_DISASTER_BATCH_SIZE = 50;
+const DEFAULT_SIMULATE_BATCH_SIZE = 50;
 
 type DemoControlsProps = {
   /** Refetch incident list after a successful simulation (Member 4: refetch after trigger). */
@@ -43,7 +42,7 @@ export const DemoControls = ({
     setSimKind("disaster");
     setBanner(null);
     const r = await postSimulateDisaster({
-      batch_size: DEFAULT_DISASTER_BATCH_SIZE,
+      batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
@@ -67,7 +66,7 @@ export const DemoControls = ({
     setSimKind("world_cup");
     setBanner(null);
     const r = await postSimulateWorldCup({
-      batch_size: DEFAULT_BATCH_SIZE,
+      batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
