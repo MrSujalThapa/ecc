@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 import type { Incident, SurgeCluster } from "@/lib/types";
 import { ClusterIncidentList } from "@/components/incidents/ClusterIncidentList";
 import {
@@ -22,6 +25,7 @@ export function ClusterDrawer({
   incidents,
   onSelectIncident,
 }: ClusterDrawerProps) {
+  const { visibility } = useDashboardPersona();
   const clusterIncidents = getClusterIncidents(cluster, incidents);
   const mode = getClusterMode(cluster, incidents);
   const radiusMeters = estimateClusterRadiusMeters(cluster, incidents);
@@ -59,7 +63,9 @@ export function ClusterDrawer({
             label="Priority"
             value={priorityScore === null ? "Not scored" : priorityScore}
           />
-          <Detail label="Cluster ID" value={<Code>{cluster.cluster_id}</Code>} />
+          {visibility.showClusterDrawerTechnicalIds ? (
+            <Detail label="Cluster ID" value={<Code>{cluster.cluster_id}</Code>} />
+          ) : null}
         </section>
 
         <Section title="Urgency Breakdown">

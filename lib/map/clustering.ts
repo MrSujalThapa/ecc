@@ -12,6 +12,14 @@ type ClusterAccumulator = {
   priorityTotal: number;
 };
 
+/** Map-derived cluster that contains this incident (via `incident_ids`), if any. */
+export function findSurgeClusterForIncident(
+  incident: Incident,
+  clusters: readonly SurgeCluster[],
+): SurgeCluster | null {
+  return clusters.find((c) => c.incident_ids.includes(incident.id)) ?? null;
+}
+
 export function getClusterIncidentIds(cluster: SurgeCluster) {
   return new Set(cluster.incident_ids);
 }
