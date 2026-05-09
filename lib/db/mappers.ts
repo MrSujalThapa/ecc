@@ -1,5 +1,6 @@
 import type {
   CallSession,
+  EventLayer,
   Incident,
   TranscriptEvent,
 } from "@/lib/types/domain";
@@ -10,7 +11,7 @@ import type {
   OperatorTransferStatus,
   Urgency,
 } from "@/lib/types/enums";
-import type { Coordinates } from "@/lib/types/geo";
+import type { Coordinates, GeoJsonGeometry } from "@/lib/types/geo";
 import type { Json } from "@/lib/types/json";
 
 const asString = (v: unknown): string =>
@@ -132,6 +133,22 @@ export const mapCallSessionRow = (row: Record<string, unknown>): CallSession => 
   created_at: asString(row.created_at),
   updated_at: asString(row.updated_at),
 });
+
+/** event_layers row → `EventLayer`. Geometry is stored as raw GeoJSON jsonb. */
+export const mapEventLayerRow = (row: Record<string, unknown>): EventLayer => {
+  const geometry =
+    row.geometry && typeof row.geometry === "object"
+      ? (row.geometry as GeoJsonGeometry)
+      : ({ type: "Point", coordinates: [0, 0] } as GeoJsonGeometry);
+  return {
+    id: asString(row.id),
+    mode: asString(row.mode),
+    layer_type: asString(row.layer_type),
+    name: asString(row.name),
+    geometry,
+    metadata: parseJsonRecord(row.metadata),
+  };
+};
 
 export const mapTranscriptRow = (row: Record<string, unknown>): TranscriptEvent => ({
   id: asString(row.id),
