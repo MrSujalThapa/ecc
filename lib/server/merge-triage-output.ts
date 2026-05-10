@@ -41,6 +41,29 @@ const AGENT_ALLOWED_CONTROL_STATE = new Set([
   "ai_completed",
 ]);
 
+const voiceDebugEnabled = (): boolean => process.env.ECC_VOICE_DEBUG === "true";
+
+const summarizeKeys = (value: unknown): string[] =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? Object.keys(value as Record<string, unknown>).sort()
+    : [];
+
+const shortText = (value: unknown, maxLength = 120): string | null => {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength
+    ? `${compact.slice(0, maxLength)}...`
+    : compact;
+};
+
+const voiceDebug = (
+  stage: "after-ai" | "after-merge",
+  payload: Record<string, unknown>
+): void => {
+  if (!voiceDebugEnabled()) return;
+  console.info(`[ECC Voice Debug] ${stage}`, payload);
+};
+
 const isAppMode = (m: string): boolean =>
   APP_MODES.includes(m as (typeof APP_MODES)[number]);
 
@@ -66,6 +89,22 @@ export const applyIncidentPatch = (
   incident: Incident,
   patch: TriageAgentOutput["incident_patch"]
 ): Incident => {
+  voiceDebug("after-ai", {
+    merge: "incident_patch",
+    incident_id: incident.id,
+    public_id: incident.public_id,
+    incident_type_before: incident.incident_type,
+    urgency_before: incident.urgency,
+    location_before: shortText(incident.location, 100),
+    collected_fields_keys_before: summarizeKeys(incident.collected_fields),
+    missing_fields_before: incident.missing_fields,
+    patch_urgency: patch.urgency ?? null,
+    patch_incident_type: patch.incident_type ?? null,
+    patch_location: shortText(patch.location, 100),
+    patch_missing_fields: patch.missing_fields ?? null,
+    patch_collected_fields_keys: summarizeKeys(patch.collected_fields),
+  });
+
   const next: Incident = {
     ...incident,
     updated_at: isoNow(),
@@ -167,6 +206,17 @@ export const applyIncidentPatch = (
     }
   }
 
+  voiceDebug("after-merge", {
+    merge: "incident",
+    incident_id: next.id,
+    public_id: next.public_id,
+    incident_type: next.incident_type,
+    urgency: next.urgency,
+    location: shortText(next.location, 100),
+    collected_fields_keys: summarizeKeys(next.collected_fields),
+    missing_fields: next.missing_fields,
+  });
+
   return next;
 };
 
@@ -178,6 +228,15 @@ export const applyCallSessionPatch = (
   session: CallSession,
   patch: TriageAgentOutput["call_session_patch"]
 ): CallSession => {
+  voiceDebug("after-ai", {
+    merge: "call_session_patch",
+    call_session_id: session.id,
+    incident_id: session.incident_id,
+    previous_next_question: shortText(session.next_question),
+    patch_next_question: shortText(patch.next_question),
+    patch_should_escalate: patch.should_escalate ?? null,
+  });
+
   const next: CallSession = { ...session, updated_at: isoNow() };
   const entries = Object.entries(patch) as [
     keyof TriageAgentOutput["call_session_patch"],
@@ -212,6 +271,14 @@ export const applyCallSessionPatch = (
       continue;
     }
   }
+
+  voiceDebug("after-merge", {
+    merge: "call_session",
+    call_session_id: next.id,
+    incident_id: next.incident_id,
+    next_question: shortText(next.next_question),
+    should_escalate: next.should_escalate,
+  });
 
   return next;
 };

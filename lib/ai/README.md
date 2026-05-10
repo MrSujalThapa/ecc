@@ -130,6 +130,12 @@ The agent prompt requires providers to preserve known `urgency`,
 `missing_fields`. It must not ask for details already present in
 `transcriptHistory`, the current incident, or the current call session.
 
+To debug repeated questions in the live voice flow, set
+`ECC_VOICE_DEBUG=true` locally and inspect `[ECC Voice Debug] before-ai`,
+`after-ai`, and `after-merge` logs. These compact logs show transcript excerpts,
+state keys, missing fields, provider, and merged triage state without logging
+API keys, auth headers, or raw request bodies.
+
 ## Call Transfer and Dispatch Wording Rules
 
 AI only recommends transfer through structured fields. Backend checks operator

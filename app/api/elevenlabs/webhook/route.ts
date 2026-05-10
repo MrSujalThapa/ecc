@@ -213,6 +213,36 @@ const getBaseUrl = (request: Request): string => {
   return `${url.protocol}//${url.host}`;
 };
 
+const voiceDebugEnabled = (): boolean => process.env.ECC_VOICE_DEBUG === "true";
+
+const shortText = (value: unknown, maxLength = 140): string | null => {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength
+    ? `${compact.slice(0, maxLength)}...`
+    : compact;
+};
+
+const redactPhone = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 7) return "[redacted-phone]";
+  return `[redacted-phone:*${digits.slice(-4)}]`;
+};
+
+const summarizeKeys = (value: unknown): string[] =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? Object.keys(value as Record<string, unknown>).sort()
+    : [];
+
+const voiceDebug = (
+  stage: "before-ai" | "after-ai" | "after-merge",
+  payload: Record<string, unknown>
+): void => {
+  if (!voiceDebugEnabled()) return;
+  console.info(`[ECC Voice Debug] ${stage}`, payload);
+};
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -370,7 +400,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           console.info(
             `[elevenlabs/webhook] repositoryCallStart(new-call) content-type=${ct} ` +
               `CallSid=${sidForDb ?? "null"} elevenlabs_conversation_id=${autoConvKey} ` +
-              `caller_phone=${callerPhoneResolved ?? "null"}`
+              `caller_phone=${redactPhone(callerPhoneResolved) ?? "null"}`
           );
           try {
             const started = await repositoryCallStart({
@@ -515,6 +545,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     };
 
     let sayToCaller: string;
+    let voiceReplyProvider: "featherless" | "fallback" = "featherless";
     const shouldTransfer = false;
     const shouldEnd = false;
 
@@ -526,6 +557,22 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         .filter((m) => (m.role === "user" || m.role === "assistant") && (m.content ?? "").trim())
         .slice(0, -1)
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content ?? "" }));
+
+      voiceDebug("before-ai", {
+        route: "/api/elevenlabs/webhook",
+        path: "custom_llm_voice_reply",
+        latestTranscript: shortText(reasoningText),
+        transcriptHistoryLength: conversationMessages.length,
+        incident_id: resolvedIncidentId,
+        call_session_id: resolvedCallSessionId,
+        incident_type_before: cachedTriageState?.incident_type ?? null,
+        urgency_before: null,
+        location_before: shortText(cachedTriageState?.location, 100),
+        collected_fields_keys_before: summarizeKeys(cachedTriageState?.collected_fields),
+        missing_fields_before: cachedTriageState?.missing_fields ?? null,
+        previous_next_question: null,
+        provider: "featherless",
+      });
 
       console.info(
         `[elevenlabs/webhook] Featherless context: ${conversationMessages.length} prior turns, lang=${translated.language ?? "en"}`
@@ -542,6 +589,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       console.info(`[elevenlabs/webhook] Featherless voice reply (${sayToCaller.length} chars)`);
     } catch (e) {
       const reason = e instanceof Error ? e.message : "unknown";
+      voiceReplyProvider = "fallback";
       console.warn(`[elevenlabs/webhook] Featherless ${reason === "voice_timeout" ? "timed out (>8s)" : "error: " + reason} -- using context fallback`);
       sayToCaller = voiceFallback(fullContext, turnNumber, translated.language ?? null);
     }
@@ -570,6 +618,21 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       }
     }
 
+    voiceDebug("after-ai", {
+      route: "/api/elevenlabs/webhook",
+      path: "custom_llm_voice_reply",
+      say_to_caller: shortText(sayToCaller),
+      provider: voiceReplyProvider,
+      incident_patch_urgency: null,
+      incident_patch_incident_type: null,
+      incident_patch_location: null,
+      incident_patch_missing_fields: null,
+      call_session_patch_next_question: null,
+      call_session_patch_should_escalate: null,
+      system_actions: [],
+      tool_requests: [],
+    });
+
     // Persist transcript + incident update async -- cache triage state for next turn.
     const turnSessionKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
     if (isNewCall) {
@@ -584,6 +647,22 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       void realIdsReady.then(async (realIds) => {
         if (!realIds) return;
         try {
+          voiceDebug("before-ai", {
+            route: "/api/elevenlabs/webhook",
+            path: "repositoryCallTurn_async_turn1",
+            latestTranscript: shortText(t1TranslatedText ?? t1Text),
+            transcriptHistoryLength: 0,
+            incident_id: realIds.incident_id,
+            call_session_id: realIds.call_session_id,
+            incident_type_before: null,
+            urgency_before: null,
+            location_before: null,
+            collected_fields_keys_before: [],
+            missing_fields_before: null,
+            previous_next_question: null,
+            provider: process.env.AI_PROVIDER ?? null,
+          });
+
           const result = await repositoryCallTurn({
             incident_id: realIds.incident_id,
             call_session_id: realIds.call_session_id,
@@ -601,6 +680,24 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
             missing_fields: inc.missing_fields ?? null,
           });
+          voiceDebug("after-merge", {
+            route: "/api/elevenlabs/webhook",
+            path: "repositoryCallTurn_async_turn1",
+            say_to_caller: shortText(result.say_to_caller),
+            incident_id: inc.id,
+            public_id: inc.public_id,
+            call_session_id: result.call_session.id,
+            incident_type: inc.incident_type,
+            urgency: inc.urgency,
+            location: shortText(inc.location, 100),
+            collected_fields_keys: summarizeKeys(inc.collected_fields),
+            missing_fields: inc.missing_fields,
+            next_question: shortText(result.call_session.next_question),
+            should_escalate: result.call_session.should_escalate,
+            system_actions: result.actions.map((action) => action.action),
+            tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
+            provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
+          });
           console.info(
             `[elevenlabs/webhook] Turn 1 saved: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"}`
           );
@@ -612,6 +709,21 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       console.info(
         `[elevenlabs/webhook] Turn 2+: saving with incident=${resolvedIncidentId} session=${resolvedCallSessionId}`
       );
+      voiceDebug("before-ai", {
+        route: "/api/elevenlabs/webhook",
+        path: "repositoryCallTurn_async_turn2_plus",
+        latestTranscript: shortText(translated.translated_text ?? latestUserText),
+        transcriptHistoryLength: turnNumber,
+        incident_id: resolvedIncidentId,
+        call_session_id: resolvedCallSessionId,
+        incident_type_before: cachedTriageState?.incident_type ?? null,
+        urgency_before: null,
+        location_before: shortText(cachedTriageState?.location, 100),
+        collected_fields_keys_before: summarizeKeys(cachedTriageState?.collected_fields),
+        missing_fields_before: cachedTriageState?.missing_fields ?? null,
+        previous_next_question: null,
+        provider: process.env.AI_PROVIDER ?? null,
+      });
       void repositoryCallTurn({
         incident_id: resolvedIncidentId,
         call_session_id: resolvedCallSessionId,
@@ -623,6 +735,24 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         translated_text: translated.translated_text,
       }).then((result) => {
         const inc = result.incident;
+        voiceDebug("after-merge", {
+          route: "/api/elevenlabs/webhook",
+          path: "repositoryCallTurn_async_turn2_plus",
+          say_to_caller: shortText(result.say_to_caller),
+          incident_id: inc.id,
+          public_id: inc.public_id,
+          call_session_id: result.call_session.id,
+          incident_type: inc.incident_type,
+          urgency: inc.urgency,
+          location: shortText(inc.location, 100),
+          collected_fields_keys: summarizeKeys(inc.collected_fields),
+          missing_fields: inc.missing_fields,
+          next_question: shortText(result.call_session.next_question),
+          should_escalate: result.call_session.should_escalate,
+          system_actions: result.actions.map((action) => action.action),
+          tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
+          provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
+        });
         if (turnSessionKey) {
           patchVoiceTriageState(turnSessionKey, {
             incident_type: inc.incident_type ?? null,
@@ -693,13 +823,47 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     }
 
     try {
-      await repositoryCallTurn({
+      voiceDebug("before-ai", {
+        route: "/api/elevenlabs/webhook",
+        path: "transcript_event",
+        latestTranscript: shortText(text),
+        transcriptHistoryLength: null,
+        incident_id: entry.incident_id,
+        call_session_id: entry.call_session_id,
+        incident_type_before: entry.triage_state?.incident_type ?? null,
+        urgency_before: null,
+        location_before: shortText(entry.triage_state?.location, 100),
+        collected_fields_keys_before: summarizeKeys(entry.triage_state?.collected_fields),
+        missing_fields_before: entry.triage_state?.missing_fields ?? null,
+        previous_next_question: null,
+        provider: process.env.AI_PROVIDER ?? null,
+      });
+
+      const result = await repositoryCallTurn({
         incident_id: entry.incident_id,
         call_session_id: entry.call_session_id,
         speaker: "caller",
         text,
         is_final: true,
         source: VOICE_SOURCE_LABEL,
+      });
+      voiceDebug("after-merge", {
+        route: "/api/elevenlabs/webhook",
+        path: "transcript_event",
+        say_to_caller: shortText(result.say_to_caller),
+        incident_id: result.incident.id,
+        public_id: result.incident.public_id,
+        call_session_id: result.call_session.id,
+        incident_type: result.incident.incident_type,
+        urgency: result.incident.urgency,
+        location: shortText(result.incident.location, 100),
+        collected_fields_keys: summarizeKeys(result.incident.collected_fields),
+        missing_fields: result.incident.missing_fields,
+        next_question: shortText(result.call_session.next_question),
+        should_escalate: result.call_session.should_escalate,
+        system_actions: result.actions.map((action) => action.action),
+        tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
+        provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
       });
     } catch (e) {
       console.error("[elevenlabs/webhook] transcript call/turn error:", e);
