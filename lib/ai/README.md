@@ -256,8 +256,8 @@ grouping incidents, ranking critical/urgent incidents, summarizing clusters,
 and validating the result with `surgeGeoOpsAgentOutputSchema`.
 
 It does not call Featherless yet. It does not execute tools, call
-Mapbox, call Supabase, mutate the database, or touch dashboard state. Backend
-must wire it later through `/api/surge/analyze` or another controlled endpoint.
+Mapbox, call Supabase, mutate the database, or touch dashboard state. The
+`/api/surge/analyze` route now exposes it as a thin analysis endpoint.
 
 Usage:
 
@@ -273,6 +273,43 @@ const result = await runSurgeGeoOpsAgent({
   provider: process.env.AI_PROVIDER,
 });
 ```
+
+API usage:
+
+```http
+POST /api/surge/analyze
+Content-Type: application/json
+
+{
+  "mode": "disaster",
+  "activeIncidents": [
+    {
+      "id": "DIS-001",
+      "urgency": "critical",
+      "incident_type": "trapped_person",
+      "coordinates": { "lat": 43.4651, "lng": -80.5229 }
+    }
+  ]
+}
+```
+
+Response shape:
+
+```json
+{
+  "ok": true,
+  "analysis": {
+    "schema_version": "1.0",
+    "mode": "disaster",
+    "clusters": [],
+    "top_priority_incident_ids": []
+  }
+}
+```
+
+The endpoint returns validated analysis JSON only. It does not mutate the
+database, call Mapbox directly, execute external tools, or dispatch responders.
+Dashboard/backend persistence and visualization can be wired later.
 
 `examples/surgeGeoOpsExamples.ts` provides static example inputs for disaster,
 World Cup, and empty-incident fallback scenarios. These examples are not run
