@@ -68,13 +68,21 @@ export const buildTwimlConnectElevenLabs = (opts: {
 
 /**
  * Returns TwiML that transfers the call to a phone number.
- * Used for the emergency operator transfer path.
+ * If dialResultUrl is supplied, Twilio posts DialCallStatus there when the
+ * dial leg ends — used to detect busy/no-answer and reconnect to AI.
  */
-export const buildTwimlTransfer = (operatorNumber: string): string =>
-  `<?xml version="1.0" encoding="UTF-8"?>
+export const buildTwimlTransfer = (
+  operatorNumber: string,
+  dialResultUrl?: string
+): string => {
+  const actionAttr = dialResultUrl
+    ? ` action="${escapeXml(dialResultUrl)}" method="POST"`
+    : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial>${escapeXml(operatorNumber)}</Dial>
+  <Dial${actionAttr}>${escapeXml(operatorNumber)}</Dial>
 </Response>`;
+};
 
 /**
  * Returns TwiML that speaks a message to the caller and hangs up.
@@ -247,6 +255,52 @@ export const createElevenLabsConversation = async (_opts: {
   // Always use the Twilio WebSocket + Parameter approach for phone calls.
   // See buildTwimlConnectElevenLabs for details.
   return null;
+};
+
+// ---------------------------------------------------------------------------
+// ElevenLabs register-call (Twilio-specific signed URL)
+// ---------------------------------------------------------------------------
+
+/**
+ * Calls ElevenLabs /v1/convai/twilio/register-call to get ready-to-use TwiML
+ * for a Twilio phone call. ElevenLabs returns TwiML (not JSON) with the correct
+ * stream URL and a conversation_id for session tracking.
+ * Returns null on failure so the caller can fall back to the static agent URL.
+ */
+export const registerElevenLabsTwilioCall = async (opts: {
+  agentId?: string;
+  callSid: string;
+  fromNumber: string;
+  toNumber: string;
+}): Promise<{ twiml: string; conversationId: string | null } | null> => {
+  const apiKey = elevenLabsConfig.apiKey;
+  const agentId = opts.agentId ?? elevenLabsConfig.agentId;
+  if (!apiKey || !agentId) return null;
+
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/convai/twilio/register-call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "xi-api-key": apiKey },
+      body: JSON.stringify({
+        agent_id: agentId,
+        call_sid: opts.callSid,
+        from_number: opts.fromNumber,
+        to_number: opts.toNumber,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[registerElevenLabsTwilioCall] HTTP ${res.status}:`, err.slice(0, 200));
+      return null;
+    }
+    const twiml = await res.text();
+    const match = twiml.match(/name="conversation_id"\s+value="([^"]+)"/);
+    const conversationId = match?.[1] ?? null;
+    return { twiml, conversationId };
+  } catch (e) {
+    console.error("[registerElevenLabsTwilioCall] error:", e);
+    return null;
+  }
 };
 
 // ---------------------------------------------------------------------------

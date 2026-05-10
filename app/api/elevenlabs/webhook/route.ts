@@ -43,6 +43,7 @@ import {
 import {
   getSessionByElevenLabsId,
   getSessionByTwilioSid,
+  getRecentPhoneSession,
   registerVoiceSession,
   updateVoiceSessionElevenLabsId,
   patchVoiceSessionIds,
@@ -62,12 +63,13 @@ const VOICE_SYSTEM_PROMPT = `You are a live emergency dispatch AI. A caller is o
 Given the conversation so far, reply with ONE short sentence spoken to the caller.
 Rules:
 - 1-2 sentences maximum. Calm, clear, direct.
-- If you don't know their location yet, ask for it.
-- Fire or smoke: tell them to evacuate if safe, say help is coming.
-- Break-in or intruder: tell them to stay hidden, help is coming.
-- Medical emergency: tell them not to move the person, help is coming.
-- Non-emergency: acknowledge and ask for their location.
-- Unknown: ask one short clarifying question.
+- If you don't know their exact location yet, ask for it.
+- Fire or smoke: tell them to evacuate if safe, say emergency services have been notified.
+- Break-in or active intruder: tell them to stay hidden and not confront anyone.
+- Medical emergency (unconscious, not breathing, severe injury): tell them not to move the person.
+- Theft, vandalism, noise complaint, or other non-emergency: acknowledge calmly and ask for their exact location. Do NOT say help is on the way.
+- Unknown situation: ask one short clarifying question.
+- NEVER promise that police, security, fire, ambulance, or any service is "on the way" or "has been contacted" — you do not know this and must not say it.
 - Never repeat a question you already asked.
 - Reply with ONLY the spoken sentence. No JSON, no labels, no explanation.`.trim();
 
@@ -93,11 +95,8 @@ const generateVoiceReplyViaFeatherless = async (
     if (triageState.location) known.push(`location: ${triageState.location}`);
     if (triageState.location_status) known.push(`location status: ${triageState.location_status}`);
     if (triageState.summary) known.push(`summary: ${triageState.summary}`);
-    if (triageState.status) known.push(`incident status: ${triageState.status}`);
-    if (triageState.call_status) known.push(`call status: ${triageState.call_status}`);
-    if (triageState.control_state) known.push(`control state: ${triageState.control_state}`);
-    if (typeof triageState.operator_required === "boolean") known.push(`operator required: ${triageState.operator_required}`);
-    if (typeof triageState.should_escalate === "boolean") known.push(`should escalate: ${triageState.should_escalate}`);
+    // Intentionally excluded: operator_required, should_escalate, status, call_status, control_state
+    // — these are backend routing signals and cause Featherless to incorrectly say hold/transfer phrases.
     if (triageState.collected_fields) {
       for (const [k, v] of Object.entries(triageState.collected_fields)) {
         known.push(`${k}: ${v}`);
@@ -124,6 +123,14 @@ const generateVoiceReplyViaFeatherless = async (
       additions.push(`Recent final voice turns: ${recentLines}.`);
     }
   }
+
+  // Never let Featherless say hold/connecting phrases — those are only emitted
+  // explicitly by the shouldTransfer branch which never calls Featherless.
+  additions.push(
+    "CRITICAL: Do NOT say 'please hold', 'stay on the line while I connect', 'I am connecting you', " +
+    "'please remain on the line', 'I will connect you', or any similar transfer-hold phrases. " +
+    "You are gathering information. Ask the next relevant question."
+  );
 
   // Featherless always replies in English — IBM translates the response
   // into the caller's language afterward (see translateEnglishToLanguageWithIbm below).
@@ -380,7 +387,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     // Resolve incident/session IDs (from extra body, or store lookup)
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
-    const resolvedTwilioCallSid = twilioCallSid;
+    let resolvedTwilioCallSid = twilioCallSid;
     let sessionLookupKey: string | undefined = conversationId ?? twilioCallSid ?? undefined;
 
     // Fallback: look up by conversation_id
@@ -433,6 +440,21 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           `[elevenlabs/webhook] Resolved session via fingerprint: incident=${resolvedIncidentId}`
         );
       } else {
+        // Check for a recent real Twilio phone call not yet linked to a fingerprint.
+        // ElevenLabs doesn't forward TwiML <Parameter> tags to the custom LLM, so we
+        // scan bySid for a session registered by the Twilio webhook in the last 2 minutes.
+        // This gives us the real CallSid for live transfer.
+        const phoneSession = getRecentPhoneSession();
+        if (phoneSession && !resolvedTwilioCallSid) {
+          resolvedIncidentId = phoneSession.incident_id;
+          resolvedCallSessionId = phoneSession.call_session_id;
+          resolvedTwilioCallSid = phoneSession.twilio_call_sid ?? phoneSession.sid;
+          updateVoiceSessionElevenLabsId(phoneSession.sid, fingerprint);
+          sessionLookupKey = fingerprint;
+          console.info(
+            `[elevenlabs/webhook] Linked to Twilio phone session: incident=${resolvedIncidentId} sid=${resolvedTwilioCallSid}`
+          );
+        } else {
         // First turn of a new call — generate IDs locally (instant, no DB wait).
         // Register in memory immediately so subsequent turns can find the session.
         // Supabase write happens async so it never blocks the voice response.
@@ -510,6 +532,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             resolveRealIds(null);
           }
         })();
+        } // end else (no phone session found — new widget call)
       }
     }
 
@@ -617,13 +640,44 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (hasFire) return p?.fire ?? "Evacuate immediately if it is safe to do so. Emergency services have been notified and are on their way.";
       if (hasIntruder) return p?.intruder ?? "Find a safe place and stay hidden. Do not confront anyone. Help is on the way.";
       if (hasMedical) return p?.medical ?? "Stay calm and do not move the person. Keep them still. Help is on the way.";
-      return p?.help ?? "Emergency services have been notified. Stay on the line.";
+      return p?.location ?? "Can you give me your exact location so we can help you?";
     };
 
     let sayToCaller: string;
     let voiceReplyProvider: "featherless" | "fallback" = "featherless";
-    const shouldTransfer = false;
-    const shouldEnd = false;
+    let shouldEnd = false;
+
+    // Detect explicit caller transfer request BEFORE calling Featherless.
+    const TRANSFER_RE = /\b(transfer|forward(?: my call| the call| me)?|connect me|speak to (a |an |)(human|operator|person|agent|someone)|talk to (a |an |)(human|operator|person|agent|someone)|real person|live (agent|person|operator)|put me through|non-emergency line|non emergency line)\b/i;
+    const allUserLines = event.messages.filter((m) => m.role === "user").map((m) => m.content ?? "");
+    const transferRequestCount = allUserLines.filter((t) => TRANSFER_RE.test(t)).length;
+    const callerIsAskingForTransfer = TRANSFER_RE.test(latestUserText.trim()) && transferRequestCount >= 1;
+
+    // Auto-transfer for non-emergency once triage has confirmed urgency + nothing missing.
+    // Skip if transfer already requested/in-progress to avoid firing every turn.
+    const transferPhrase = /non-emergency line|connect you to (an operator|a human)|transferring you/i;
+    const alreadyTransferring =
+      cachedTriageState?.operator_transfer_status === "requested" ||
+      cachedTriageState?.operator_transfer_status === "transferred" ||
+      cachedTriageState?.status === "transferring_to_operator" ||
+      cachedTriageState?.control_state === "transferring" ||
+      transferPhrase.test(cachedTriageState?.last_say_to_caller ?? "");
+    const triageComplete =
+      cachedTriageState?.urgency === "non_emergency" &&
+      (!cachedTriageState?.missing_fields || cachedTriageState.missing_fields.length === 0);
+    const autoTransferNonEmergency = triageComplete && substantiveUserMsgs.length >= 3 && !callerIsAskingForTransfer && !alreadyTransferring;
+
+    const shouldTransfer = callerIsAskingForTransfer || autoTransferNonEmergency;
+
+    if (shouldTransfer) {
+      sayToCaller = autoTransferNonEmergency
+        ? "I'll connect you to the non-emergency line now. An officer will follow up. Please hold."
+        : "I'll connect you to an operator now. Please hold the line.";
+      const reason = autoTransferNonEmergency
+        ? `non-emergency auto-transfer (turn ${substantiveUserMsgs.length}, triage complete)`
+        : `caller requested (${transferRequestCount} request(s))`;
+      console.info(`[elevenlabs/webhook] Transfer triggered — ${reason}`);
+    } else
 
     try {
       // Build the full conversation history (user + assistant) from the ElevenLabs message list.
@@ -728,6 +782,9 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         last_say_to_caller: sayToCaller,
         last_question: lastQuestionFrom(sayToCaller),
         last_updated_at: nowIso,
+        // Mark transfer as requested immediately so subsequent turns don't re-trigger.
+        // voiceSessionStore preserves this and won't let backend "not_requested" clear it.
+        ...(shouldTransfer ? { operator_transfer_status: "requested" as const } : {}),
       });
     }
 

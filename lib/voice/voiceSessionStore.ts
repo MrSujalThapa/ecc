@@ -131,6 +131,12 @@ export type VoiceSessionEntry = {
   /** ISO timestamp when this entry was created. */
   created_at: string;
   /**
+   * The real Twilio CallSid for this session (CA...).
+   * Null for widget/browser sessions with no underlying phone call.
+   * Stored here so the ElevenLabs webhook can retrieve it for live call transfer.
+   */
+  twilio_call_sid: string | null;
+  /**
    * Cached triage state from the last repositoryCallTurn response.
    * Updated async after each turn — used by the next turn's voice prompt
    * so Featherless knows what has already been collected.
@@ -159,11 +165,15 @@ export const registerVoiceSession = (opts: {
   mode?: string;
   elevenlabs_conversation_id?: string | null;
 }): void => {
+  // Only store real Twilio SIDs (CA/CF prefix). Fingerprint keys (fp:...) are
+  // internal identifiers, not real SIDs — don't expose them as twilio_call_sid.
+  const realSid = opts.twilio_call_sid.startsWith("fp:") ? null : opts.twilio_call_sid;
   const entry: VoiceSessionEntry = {
     incident_id: opts.incident_id,
     call_session_id: opts.call_session_id,
     mode: opts.mode ?? "normal",
     created_at: new Date().toISOString(),
+    twilio_call_sid: realSid,
   };
   bySid.set(opts.twilio_call_sid, entry);
   if (opts.elevenlabs_conversation_id) {
@@ -229,10 +239,23 @@ export const patchVoiceTriageState = (
     incomingHistory
   );
 
+  // Never downgrade operator_transfer_status — once "requested" or a terminal
+  // state is set, backend "not_requested" responses must not clear it.
+  const currStatus = current?.operator_transfer_status;
+  const incomingStatus = state.operator_transfer_status;
+  const TERMINAL = new Set(["transferred", "failed"]);
+  const preservedTransferStatus =
+    currStatus && TERMINAL.has(currStatus)
+      ? currStatus // keep terminal states forever
+      : currStatus === "requested" && incomingStatus !== "transferred" && incomingStatus !== "failed"
+        ? "requested" // hold "requested" until a terminal state arrives
+        : incomingStatus ?? currStatus; // normal update or no prior status
+
   // Merge into existing state so partial updates don't wipe prior data.
   entry.triage_state = {
     ...current,
     ...state,
+    operator_transfer_status: preservedTransferStatus,
     collected_fields: mergeCollectedFields(
       current?.collected_fields,
       state.collected_fields
@@ -280,3 +303,22 @@ export const getVoiceStoreSizes = (): { bySid: number; byElId: number } => ({
   bySid: bySid.size,
   byElId: byElId.size,
 });
+
+/**
+ * Returns the most recently registered real Twilio phone session (non-fingerprint).
+ * Used by the ElevenLabs webhook to link itself to a Twilio call when Parameters
+ * aren't forwarded — gives us the real CallSid for live transfer.
+ * Only returns sessions created within the last 2 minutes.
+ */
+export const getRecentPhoneSession = (): (VoiceSessionEntry & { sid: string }) | null => {
+  const cutoff = Date.now() - 2 * 60 * 1000;
+  let best: (VoiceSessionEntry & { sid: string }) | null = null;
+  for (const [sid, entry] of bySid) {
+    if (sid.startsWith("fp:")) continue;
+    if (new Date(entry.created_at).getTime() < cutoff) continue;
+    if (!best || new Date(entry.created_at) > new Date(best.created_at)) {
+      best = { ...entry, sid };
+    }
+  }
+  return best;
+};
