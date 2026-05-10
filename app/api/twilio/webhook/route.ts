@@ -27,6 +27,7 @@ import {
   buildTwimlSayAndHangup,
   createElevenLabsConversation,
   parseTwilioFormBody,
+  registerElevenLabsTwilioCall,
 } from "@/lib/voice/twilioClient";
 import { elevenLabsConfig } from "@/lib/voice/voiceConfig";
 import {
@@ -40,6 +41,8 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   const body = await parseTwilioFormBody(request);
   const callSid = body.CallSid ?? "";
   const callStatus = body.CallStatus ?? "";
+  const fromNumber = body.From ?? "";
+  const toNumber = body.To ?? "";
   const callerPhone =
     body.From?.trim() ||
     body.from?.trim() ||
@@ -108,26 +111,35 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   let twiml: string;
 
   if (elevenLabsConfig.isConfigured) {
-    const conv = await createElevenLabsConversation({
-      incident_id: incidentId,
-      call_session_id: callSessionId,
-      mode,
-    });
+    // Use register-call — ElevenLabs returns ready-to-use TwiML with the correct
+    // stream URL and a conversation_id we can use for session tracking.
+    const registered = await registerElevenLabsTwilioCall({ callSid, fromNumber, toNumber });
 
-    if (conv?.conversation_id) {
-      // Update store so ElevenLabs webhook can look up session by conversation ID
-      updateVoiceSessionElevenLabsId(callSid, conv.conversation_id);
+    if (registered) {
+      twiml = registered.twiml;
+      if (registered.conversationId) {
+        updateVoiceSessionElevenLabsId(callSid, registered.conversationId);
+        console.info(`[twilio/webhook] ElevenLabs conv_id=${registered.conversationId}`);
+      }
+      console.info("[twilio/webhook] register-call OK — using ElevenLabs TwiML");
+    } else {
+      // Fallback if register-call fails (key missing convai_write, etc.)
+      const conv = await createElevenLabsConversation({
+        incident_id: incidentId,
+        call_session_id: callSessionId,
+        mode,
+      });
+      if (conv?.conversation_id) {
+        updateVoiceSessionElevenLabsId(callSid, conv.conversation_id);
+      }
+      twiml = buildTwimlConnectElevenLabs({
+        signedUrl: conv?.signed_url ?? null,
+        incidentId: incidentId,
+        callSessionId: callSessionId,
+      });
+      console.warn("[twilio/webhook] register-call failed — using fallback TwiML");
     }
 
-    twiml = buildTwimlConnectElevenLabs({
-      signedUrl: conv?.signed_url ?? null,
-      incidentId: incidentId,
-      callSessionId: callSessionId,
-    });
-
-    console.info(
-      `[twilio/webhook] Connecting to ElevenLabs. conv_id=${conv?.conversation_id ?? "static"} signed_url_ok=${!!conv?.signed_url}`
-    );
     console.info(`[twilio/webhook] TwiML: ${twiml}`);
   } else {
     // ElevenLabs not configured — give a holding message for demo safety

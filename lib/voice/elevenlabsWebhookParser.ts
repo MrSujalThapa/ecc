@@ -77,11 +77,15 @@ export const parseElevenLabsEvent = (raw: unknown): ParsedElevenLabsEvent => {
 
     // ElevenLabs Custom LLM webhook encodes the conversation_id in the `model` field
     // (OpenAI chat.completions format). It may also appear at top level or in extra body.
+    // IMPORTANT: when using a custom LLM, ElevenLabs sends model="custom-llm" which is
+    // NOT a real conversation ID — using it as a session key causes all concurrent calls
+    // to share the same store entry and corrupt each other. Only accept conv_ prefixed IDs.
     const modelField = body.model ?? null;
+    const modelAsConvId = modelField?.startsWith("conv_") ? modelField : null;
     const conversationId =
       body.conversation_id ??
       (extra.conversation_id as string | undefined) ??
-      modelField ??
+      modelAsConvId ??
       null;
 
     const twilioCallSid =
