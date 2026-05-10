@@ -45,6 +45,18 @@ export const mockTriageExamples: MockTriageExample[] = [
     },
   },
   {
+    id: "ex-bike-theft-no-location",
+    name: "Bike theft without location",
+    mode: "normal",
+    latestTranscript: "My bike was stolen.",
+    expected: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      should_escalate: false,
+    },
+  },
+  {
     id: "ex-active-break-in",
     name: "Active break-in",
     mode: "normal",

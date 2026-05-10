@@ -82,6 +82,37 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       "Safe property/lost-item reports stay in AI intake. The agent should ask for item description and last seen location, with no transfer or dispatch promise.",
   },
   {
+    id: "agentic-bike-theft-no-location",
+    name: "Bike theft without location",
+    mode: "normal",
+    latestTranscript: "My bike was stolen.",
+    languageHint: null,
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      missing_fields: [
+        "bike_description",
+        "last_seen_location",
+        "time_last_seen",
+        "lock_status",
+        "suspect_info",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "Can you describe the bike and where it was last seen?",
+    },
+    expectedCallerResponse:
+      "I'll collect the details for a report. Can you describe the bike and where it was last seen?",
+    notes:
+      '"non-emergency unit dispatched" is not allowed unless backend/operator/voice state confirms dispatch. Bike theft with a safe caller should continue AI intake with no transfer or dispatch promise.',
+  },
+  {
     id: "agentic-active-break-in-no-location",
     name: "Active break-in with no exact location",
     mode: "normal",
