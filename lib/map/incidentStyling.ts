@@ -81,20 +81,31 @@ export const formatTimestamp = (value: string | null | undefined): string => {
   });
 };
 
+const createdAtMs = (iso: string | null | undefined): number => {
+  if (!iso) {
+    return 0;
+  }
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+};
+
+/**
+ * Critical → urgent → non-emergency → unknown, then newest `created_at` first
+ * within each band; stable tie-break on id.
+ */
 export function sortIncidentsForQueue(incidents: Incident[]): Incident[] {
   return [...incidents].sort((a, b) => {
-    const urgencyDelta = urgencyRank[b.urgency] - urgencyRank[a.urgency];
-    if (urgencyDelta !== 0) return urgencyDelta;
+    const urgencyDelta =
+      (urgencyRank[b.urgency] ?? 0) - (urgencyRank[a.urgency] ?? 0);
+    if (urgencyDelta !== 0) {
+      return urgencyDelta;
+    }
 
-    const priorityDelta = (b.priority_score ?? 0) - (a.priority_score ?? 0);
-    if (priorityDelta !== 0) return priorityDelta;
+    const timeDelta = createdAtMs(b.created_at) - createdAtMs(a.created_at);
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
 
-    const activeDelta =
-      (activeStatusRank[b.status] ?? 1) - (activeStatusRank[a.status] ?? 1);
-    if (activeDelta !== 0) return activeDelta;
-
-    return (
-      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    );
+    return String(a.id).localeCompare(String(b.id));
   });
 }

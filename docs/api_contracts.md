@@ -96,6 +96,7 @@ export type LocationStatus =
 export type OperatorTransferStatus =
   | "not_requested"
   | "requested"
+  | "transferring"
   | "transferred"
   | "failed";
 ```

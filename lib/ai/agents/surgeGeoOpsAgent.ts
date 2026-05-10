@@ -27,7 +27,7 @@ export type RunSurgeGeoOpsAgentInput = {
   responders?: Array<Record<string, unknown>>;
   eventLayers?: Array<Record<string, unknown>>;
   recentToolResults?: unknown[];
-  provider?: "mock" | "gemma" | "featherless" | string | null;
+  provider?: "mock" | "featherless" | string | null;
 };
 
 type IncidentWithId = Record<string, unknown> & {

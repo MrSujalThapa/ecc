@@ -19,6 +19,7 @@ import {
   applyCallSessionPatch,
   applyIncidentPatch,
 } from "@/lib/server/merge-triage-output";
+import { applyTransferGate } from "@/lib/server/transferGate";
 import {
   appendSeedTranscriptEvents,
   appendTranscriptEvent,
@@ -256,6 +257,67 @@ const buildTriageTrace = (outcome: TwoPassTriageOutcome): TriageTrace => ({
   pass2_provider_error: outcome.pass2ProviderError,
 });
 
+const applyTriagePatchesAndGate = (
+  incident: Incident,
+  session: CallSession,
+  triageOutcome: TwoPassTriageOutcome
+) => {
+  const aiOutput = triageOutcome.output;
+  const incidentPatch = hydrateIncidentPatchFromToolResults(
+    aiOutput.incident_patch,
+    triageOutcome.toolResults
+  );
+  const patchedIncident = applyIncidentPatch(incident, incidentPatch);
+  const patchedSession = applyCallSessionPatch(session, aiOutput.call_session_patch);
+  return applyTransferGate(patchedIncident, patchedSession, aiOutput.system_actions);
+};
+
+const appendTransferGateAudits = async (
+  client: SupabaseClient | null,
+  incident_id: string,
+  call_session_id: string,
+  gated: ReturnType<typeof applyTransferGate>
+): Promise<void> => {
+  if (gated.transferApproved) {
+    if (client) {
+      await insertAudit(client, {
+        incident_id,
+        actor: "system",
+        action: "transfer_requested",
+        patch: { call_session_id } as Json,
+      });
+    } else {
+      newAuditLog({
+        incident_id,
+        actor: "system",
+        action: "transfer_requested",
+        patch: { call_session_id },
+      });
+    }
+    return;
+  }
+  if (gated.suppressionReason && gated.hadOperatorTransferIntent) {
+    if (client) {
+      await insertAudit(client, {
+        incident_id,
+        actor: "system",
+        action: "transfer_suppressed",
+        patch: {
+          call_session_id,
+          reason: gated.suppressionReason,
+        } as Json,
+      });
+    } else {
+      newAuditLog({
+        incident_id,
+        actor: "system",
+        action: "transfer_suppressed",
+        patch: { call_session_id, reason: gated.suppressionReason },
+      });
+    }
+  }
+};
+
 // --- dev: list incidents (Supabase or in-memory) ---
 
 export const repositoryListIncidentsForDev = async (
@@ -269,7 +331,7 @@ export const repositoryListIncidentsForDev = async (
   const { data, error } = await client
     .from("incidents")
     .select("*")
-    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(cap);
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => mapIncidentRow(r as Record<string, unknown>));
@@ -518,23 +580,16 @@ export const repositoryCallTurn = async (
       provider: process.env.AI_PROVIDER,
     });
     const aiOutput = triageOutcome.output;
-    const incidentPatch = hydrateIncidentPatchFromToolResults(
-      aiOutput.incident_patch,
-      triageOutcome.toolResults
-    );
-    const nextIncident = applyIncidentPatch(incident, incidentPatch);
-    const nextSession = applyCallSessionPatch(
-      refreshedSession,
-      aiOutput.call_session_patch
-    );
-    saveIncident(nextIncident);
-    saveCallSession(nextSession);
+    const gated = applyTriagePatchesAndGate(incident, refreshedSession, triageOutcome);
+    saveIncident(gated.incident);
+    saveCallSession(gated.call_session);
     newAuditLog({
       incident_id: incident.id,
       actor: "triage_agent",
       action: "call_turn_final",
       patch: buildTriageAuditPatch(source, triageOutcome),
     });
+    await appendTransferGateAudits(null, incident.id, call_session_id, gated);
     const agentText = (aiOutput.say_to_caller ?? "").trim();
     if (agentText) {
       appendTranscriptEvent({
@@ -554,7 +609,7 @@ export const repositoryCallTurn = async (
       incident: getIncident(incident_id)!,
       call_session: getCallSession(call_session_id)!,
       transcript_event: transcriptEvent,
-      actions: aiOutput.system_actions,
+      actions: gated.actions,
       triage_trace: buildTriageTrace(triageOutcome),
     };
   }
@@ -622,21 +677,16 @@ export const repositoryCallTurn = async (
     provider: process.env.AI_PROVIDER,
   });
   const aiOutput = triageOutcome.output;
-  const incidentPatch = hydrateIncidentPatchFromToolResults(
-    aiOutput.incident_patch,
-    triageOutcome.toolResults
-  );
-  const nextIncident = applyIncidentPatch(incident, incidentPatch);
-  const nextSession = applyCallSessionPatch(session, aiOutput.call_session_patch);
+  const gated = applyTriagePatchesAndGate(incident, session, triageOutcome);
 
   const { error: upI } = await client
     .from("incidents")
-    .update(incidentToDb(nextIncident))
+    .update(incidentToDb(gated.incident))
     .eq("id", incident_id);
   if (upI) throw new Error(upI.message);
   const { error: upS } = await client
     .from("call_sessions")
-    .update(callSessionToDb(nextSession))
+    .update(callSessionToDb(gated.call_session))
     .eq("id", call_session_id);
   if (upS) throw new Error(upS.message);
 
@@ -646,6 +696,7 @@ export const repositoryCallTurn = async (
     action: "call_turn_final",
     patch: buildTriageAuditPatch(source, triageOutcome),
   });
+  await appendTransferGateAudits(client, incident_id, call_session_id, gated);
 
   const agentText = (aiOutput.say_to_caller ?? "").trim();
   if (agentText) {
@@ -677,9 +728,176 @@ export const repositoryCallTurn = async (
     incident: mapIncidentRow(fi as Record<string, unknown>),
     call_session: mapCallSessionRow(fs as Record<string, unknown>),
     transcript_event,
-    actions: aiOutput.system_actions,
+    actions: gated.actions,
     triage_trace: buildTriageTrace(triageOutcome),
   };
+};
+
+// --- Twilio operator bridge (transfer lifecycle) ---
+
+export const repositoryMarkTransferBridging = async (parsed: {
+  incident_id: string;
+  call_session_id: string;
+}): Promise<void> => {
+  const { incident_id, call_session_id } = parsed;
+  const client = getServiceRoleClient();
+  const t = isoNow();
+
+  if (!client) {
+    const session = getCallSession(call_session_id);
+    if (!session || session.incident_id !== incident_id) return;
+    if (session.status !== "active") return;
+    saveCallSession({
+      ...session,
+      operator_transfer_status: "transferring",
+      updated_at: t,
+    });
+    newAuditLog({
+      incident_id,
+      actor: "voice",
+      action: "transfer_bridging",
+      patch: { call_session_id },
+    });
+    return;
+  }
+
+  const { data: sesRow, error: sErr } = await client
+    .from("call_sessions")
+    .select("*")
+    .eq("id", call_session_id)
+    .single();
+  if (sErr || !sesRow) return;
+  const session = mapCallSessionRow(sesRow as Record<string, unknown>);
+  if (session.incident_id !== incident_id || session.status !== "active") return;
+
+  const next: CallSession = {
+    ...session,
+    operator_transfer_status: "transferring",
+    updated_at: t,
+  };
+  const { error: uErr } = await client
+    .from("call_sessions")
+    .update(callSessionToDb(next))
+    .eq("id", call_session_id);
+  if (uErr) throw new Error(uErr.message);
+
+  await insertAudit(client, {
+    incident_id,
+    actor: "voice",
+    action: "transfer_bridging",
+    patch: { call_session_id } as Json,
+  });
+};
+
+export const repositoryMarkTransferFailed = async (parsed: {
+  incident_id: string;
+  call_session_id: string;
+  error_message?: string;
+}): Promise<void> => {
+  const { incident_id, call_session_id, error_message } = parsed;
+  const client = getServiceRoleClient();
+  const t = isoNow();
+
+  if (!client) {
+    const incident = getIncident(incident_id);
+    const session = getCallSession(call_session_id);
+    if (!incident || !session) return;
+    let nextIncident = incident;
+    if (incident.status === "transferring_to_operator") {
+      nextIncident = {
+        ...incident,
+        status: "active_call",
+        control_state: "ai_leading",
+        updated_at: t,
+        last_updated_by: "system:transfer_failed",
+      };
+      saveIncident(nextIncident);
+    }
+    saveCallSession({
+      ...session,
+      operator_transfer_status: "failed",
+      should_escalate: false,
+      updated_at: t,
+    });
+    newAuditLog({
+      incident_id,
+      actor: "voice",
+      action: "transfer_failed",
+      patch: { call_session_id, error: error_message ?? null },
+    });
+    return;
+  }
+
+  const { data: incRow } = await client
+    .from("incidents")
+    .select("*")
+    .eq("id", incident_id)
+    .single();
+  const { data: sesRow } = await client
+    .from("call_sessions")
+    .select("*")
+    .eq("id", call_session_id)
+    .single();
+  if (!incRow || !sesRow) return;
+  const incident = mapIncidentRow(incRow as Record<string, unknown>);
+  const session = mapCallSessionRow(sesRow as Record<string, unknown>);
+
+  if (incident.status === "transferring_to_operator") {
+    const rolledBack: Incident = {
+      ...incident,
+      status: "active_call",
+      control_state: "ai_leading",
+      updated_at: t,
+      last_updated_by: "system:transfer_failed",
+    };
+    const { error: ie } = await client
+      .from("incidents")
+      .update(incidentToDb(rolledBack))
+      .eq("id", incident_id);
+    if (ie) throw new Error(ie.message);
+  }
+
+  const nextSession: CallSession = {
+    ...session,
+    operator_transfer_status: "failed",
+    should_escalate: false,
+    updated_at: t,
+  };
+  const { error: se } = await client
+    .from("call_sessions")
+    .update(callSessionToDb(nextSession))
+    .eq("id", call_session_id);
+  if (se) throw new Error(se.message);
+
+  await insertAudit(client, {
+    incident_id,
+    actor: "voice",
+    action: "transfer_failed",
+    patch: { call_session_id, error: error_message ?? null } as Json,
+  });
+};
+
+export const repositoryLogTransferCompleted = async (parsed: {
+  incident_id: string;
+  call_session_id: string;
+}): Promise<void> => {
+  const { incident_id, call_session_id } = parsed;
+  const client = getServiceRoleClient();
+  if (!client) {
+    newAuditLog({
+      incident_id,
+      actor: "voice",
+      action: "transfer_completed",
+      patch: { call_session_id },
+    });
+    return;
+  }
+  await insertAudit(client, {
+    incident_id,
+    actor: "voice",
+    action: "transfer_completed",
+    patch: { call_session_id } as Json,
+  });
 };
 
 // --- call / end ---
@@ -796,10 +1014,14 @@ export const repositoryOperatorTakeover = async (
     const active = findActiveCallSessionForIncident(incident_id);
     let closed: CallSession | null = null;
     if (active) {
+      const transferDone =
+        active.operator_transfer_status === "requested" ||
+        active.operator_transfer_status === "transferring";
       closed = {
         ...active,
         status: "closed",
         ai_active: false,
+        operator_transfer_status: transferDone ? "transferred" : active.operator_transfer_status,
         updated_at: t,
       };
       saveCallSession(closed);
@@ -848,10 +1070,14 @@ export const repositoryOperatorTakeover = async (
 
   let closedSession: CallSession | null = null;
   if (active) {
+    const transferDone =
+      active.operator_transfer_status === "requested" ||
+      active.operator_transfer_status === "transferring";
     closedSession = {
       ...active,
       status: "closed",
       ai_active: false,
+      operator_transfer_status: transferDone ? "transferred" : active.operator_transfer_status,
       updated_at: t,
     };
     const { error: ce } = await client

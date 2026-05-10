@@ -76,21 +76,21 @@ export const mockToolResults = [
   },
   {
     tool_request_id: "tr-medical-gate3-help",
-    tool: "nearest_help_point_lookup",
+    tool: "responder_lookup",
     ok: true,
     source: "database",
     data: {
-      recommendations: [
+      responders: [
         {
-          id: "hp-medical-tent-east",
-          type: "medical_tent",
-          name: "East Medical Tent",
+          id: "MED-3",
+          type: "medical",
+          status: "available",
+          display_name: "Gate 3 Medical Team",
           coordinates: { lat: 43.6429, lng: -79.3871 },
           distance_meters: 110,
-          route_summary: "Follow signs toward East Concourse medical tent.",
           metadata: {
             staffed: true,
-            open: true,
+            zone: "East Concourse",
           },
         },
       ],
@@ -99,20 +99,20 @@ export const mockToolResults = [
   },
   {
     tool_request_id: "tr-lost-child-help",
-    tool: "nearest_help_point_lookup",
+    tool: "responder_lookup",
     ok: true,
     source: "database",
     data: {
-      recommendations: [
+      responders: [
         {
-          id: "hp-lost-found-main",
-          type: "lost_and_found",
-          name: "Main Lost and Found",
+          id: "SEC-LOST-1",
+          type: "security",
+          status: "available",
+          display_name: "Fan Zone Security Team",
           coordinates: { lat: 43.6422, lng: -79.3864 },
           distance_meters: 160,
-          route_summary: "Located beside the main information booth.",
           metadata: {
-            security_staff_present: true,
+            lost_child_response: true,
             languages: ["en", "fr", "es"],
           },
         },
@@ -141,36 +141,43 @@ export const mockToolResults = [
   },
   {
     tool_request_id: "tr-trapped-route",
-    tool: "route_between_points",
+    tool: "responder_lookup",
     ok: true,
-    source: "mapbox_mcp",
+    source: "database",
     data: {
-      route_id: "route-ems2-to-trapped-placeholder",
-      distance_meters: 1320,
-      duration_seconds: 410,
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [-80.524, 43.4661],
-          [-80.5252, 43.467],
-          [-80.5264, 43.468],
-        ],
-      },
-      notes: "Placeholder mock route geometry for future tests only.",
+      responders: [
+        {
+          id: "FIRE-4",
+          type: "fire_rescue",
+          status: "available",
+          display_name: "Fire Rescue Unit 4",
+          coordinates: { lat: 43.4668, lng: -80.5255 },
+          distance_meters: 1320,
+        },
+      ],
+      notes:
+        "Route geometry is future-only; current fixture uses responder_lookup.",
     },
     created_at: CREATED_AT,
   },
   {
     tool_request_id: "tr-gas-king-context",
-    tool: "context_lookup",
+    tool: "event_zone_lookup",
     ok: true,
     source: "static_context",
     data: {
-      context_id: "ctx-disaster-king-blocked-roads",
-      title: "Disaster blocked-road notes near King Street",
-      snippets: [
-        "Multiple reports mention debris near King Street after the earthquake.",
-        "Operators should verify access routes before recommending responder movement.",
+      matches: [
+        {
+          layer_id: "disaster-king-street",
+          name: "King Street Earthquake Impact Area",
+          layer_type: "disaster_zone",
+          distance_meters: 120,
+          contains_location: true,
+          metadata: {
+            reported_hazards: ["gas_smell", "debris"],
+            notes: "Context lookup is future-only; event_zone_lookup carries current fixture context.",
+          },
+        },
       ],
       confidence: 0.74,
     },
@@ -178,15 +185,22 @@ export const mockToolResults = [
   },
   {
     tool_request_id: "tr-crowd-gate-context",
-    tool: "context_lookup",
+    tool: "event_zone_lookup",
     ok: true,
     source: "static_context",
     data: {
-      context_id: "ctx-world-cup-crowd-safety",
-      title: "World Cup event crowd safety notes",
-      snippets: [
-        "Crowd pushing near gates should be surfaced to operators for review.",
-        "Do not provide tactical crowd-control instructions to callers.",
+      matches: [
+        {
+          layer_id: "wc-stadium-gate-crowd",
+          name: "Stadium Gate Crowd Area",
+          layer_type: "stadium_gate",
+          distance_meters: 35,
+          contains_location: true,
+          metadata: {
+            crowd_level: "high",
+            notes: "Context lookup is future-only; event_zone_lookup carries current fixture context.",
+          },
+        },
       ],
       confidence: 0.82,
     },

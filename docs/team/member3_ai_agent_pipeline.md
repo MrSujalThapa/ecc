@@ -29,8 +29,7 @@ The function should support:
 
 ```text
 mock        = fallback/testing provider
-gemma       = current real AI provider for testing/demo
-featherless = future provider when subscription/API access is ready
+featherless = real AI provider
 ```
 
 ---
@@ -55,9 +54,8 @@ The AI pipeline is being built in stages:
 ```text
 Mock AI first
 → Backend integration check
-→ Gemma real-AI provider for current testing/demo
+→ Featherless real-AI provider
 → Mock fallback protection
-→ Featherless later when subscription is available
 ```
 
 This keeps the hackathon demo safe because the system can still work with mock AI if the real provider fails.
@@ -74,19 +72,9 @@ Used for backend testing, fallback behavior, and safe demo recovery.
 AI_PROVIDER=mock
 ```
 
-### 2. Gemma Provider
+### 2. Featherless Provider
 
-Used as the current real AI provider for testing and demo because Featherless subscription/API access is not available yet.
-
-```env
-AI_PROVIDER=gemma
-GEMMA_API_KEY=your_real_key_here
-GEMMA_MODEL=gemma-4-26b-a4b-it
-```
-
-### 3. Featherless Provider
-
-Reserved for later when subscription/API access is ready.
+Used as the current real AI provider for testing and demo.
 
 ```env
 AI_PROVIDER=featherless
@@ -103,18 +91,11 @@ Use `.env.local` manually. Do **not** commit `.env.local`.
 ```env
 # AI provider for Teammate 3 AI pipeline
 # mock = safe fallback / backend testing
-# gemma = current real AI testing/demo
-# featherless = future provider when subscription/API access is ready
+# featherless = current real AI testing/demo
 
 AI_PROVIDER=mock
 
-# Current real AI provider: Gemma
-# Change AI_PROVIDER=gemma when testing real AI
-GEMMA_API_KEY=
-GEMMA_MODEL=gemma-4-26b-a4b-it
-
-# Future provider: Featherless
-# Keep empty for now
+# Current real AI provider: Featherless
 FEATHERLESS_API_KEY=
 FEATHERLESS_MODEL=
 ```
@@ -125,12 +106,12 @@ For current mock testing:
 AI_PROVIDER=mock
 ```
 
-For current real AI testing/demo with Gemma:
+For current real AI testing/demo with Featherless:
 
 ```env
-AI_PROVIDER=gemma
-GEMMA_API_KEY=your_real_key_here
-GEMMA_MODEL=gemma-4-26b-a4b-it
+AI_PROVIDER=featherless
+FEATHERLESS_API_KEY=your_real_key_here
+FEATHERLESS_MODEL=model_name_here
 ```
 
 ---
@@ -309,16 +290,16 @@ The backend should:
 
 ---
 
-## Phase 4 — Gemma Real AI Provider
+## Phase 4 — Featherless Real AI Provider
 
 ### Purpose
 
-Gemma is the current real AI provider for testing/demo because Featherless subscription/API access is not available yet.
+Featherless is the current real AI provider for testing/demo.
 
 ### Planned / Current Files
 
 ```text
-/lib/ai/providers/gemmaClient.ts
+/lib/ai/providers/featherlessClient.ts
 /lib/ai/agents/callTriageAgent.ts
 /lib/ai/agents/runControlledAgent.ts
 ```
@@ -348,35 +329,43 @@ const aiResult = await runCallTriageAgent({
 AI_PROVIDER=mock
 → use mockCallTriageAgent
 
-AI_PROVIDER=gemma
-→ call Gemma provider
-
 AI_PROVIDER=featherless
-→ reserved for future provider support
+→ call Featherless provider
 
-Gemma key missing / timeout / invalid JSON
+Featherless key missing / timeout / invalid JSON
 → fallback to mockCallTriageAgent
 ```
 
 ---
 
-## Phase 5 — Featherless Future Support
+## Phase 5 — Voice State Memory
 
-Featherless will be added later when subscription or API access is available.
+The live voice path must pass transcript and state memory into the AI on every
+final caller turn.
 
-The backend call should not change. The provider switch should still use:
+The backend call should use:
 
 ```ts
-provider: process.env.AI_PROVIDER
+runCallTriageAgent({
+  incident,
+  callSession,
+  latestTranscript,
+  transcriptHistory,
+  mode,
+  provider: process.env.AI_PROVIDER,
+});
 ```
 
-Future `.env.local` setup:
+If a live voice path bypasses `runCallTriageAgent`, it must still include:
 
-```env
-AI_PROVIDER=featherless
-FEATHERLESS_API_KEY=your_real_key_here
-FEATHERLESS_MODEL=model_name_here
+```text
+transcriptHistory
+current Incident
+current CallSession
 ```
+
+This prevents the AI from asking for emergency type, location, or description
+again after those details were already collected.
 
 ---
 
@@ -410,6 +399,22 @@ AI only returns structured decisions.
 Backend validates and executes actions.
 Human operators remain in control.
 ```
+
+### Call Transfer and Dispatch Wording Rules
+
+AI only recommends transfer through structured fields. Backend checks operator
+availability and decides whether transfer should happen; voice/Twilio performs
+the actual live call transfer.
+
+Caller-facing responses must not imply dispatch has occurred unless backend,
+voice, or an operator has confirmed it. For safe vehicle theft and property
+report intake, the AI should collect details and avoid phrases like "help is on
+the way", "police are coming", "firefighters are coming", or "ambulance is
+coming."
+
+Safe property reports, lost items, and vehicle theft where the caller is safe
+should stay with AI intake unless danger appears or backend state says an
+operator is needed. There is no priority queue logic for now.
 
 ---
 
@@ -501,7 +506,7 @@ operator_transfer_status
 My branch:
 
 ```text
-feature/ai-triage-agent
+feature/member-3
 ```
 
 Rules:
@@ -510,7 +515,7 @@ Rules:
 Do not push to main.
 Do not merge into main without team approval.
 Commit after every substep.
-Push only to origin feature/ai-triage-agent.
+Push only to origin feature/member-3.
 Keep working tree clean before moving to next phase.
 ```
 
@@ -519,7 +524,7 @@ Useful commands:
 ```bash
 git status
 git branch
-git push origin feature/ai-triage-agent
+git push origin feature/member-3
 ```
 
 ---
@@ -565,6 +570,32 @@ docs/team/member3_ai_agent_pipeline.md
 
 ---
 
+## Surge / GeoOps Status
+
+Done:
+
+```text
+Surge / GeoOps output schema
+runSurgeGeoOpsAgent helper
+/api/surge/analyze route wired for functional analysis
+```
+
+Left:
+
+```text
+optional database persistence of cluster_id / priority_score
+dashboard visualization of GeoOps recommendations
+optional model-backed Featherless GeoOps reasoning
+optional Mapbox route/help-point visualization
+backend/operator confirmation for any real actions
+```
+
+The current `/api/surge/analyze` route returns validated analysis JSON only. It
+does not mutate Supabase, call Mapbox directly, execute external tools, or
+dispatch responders.
+
+---
+
 ## Final Hackathon Demo Flow
 
 The final demo flow should be:
@@ -602,8 +633,7 @@ Provider options:
 
 ```text
 mock
-gemma
-featherless later
+featherless
 ```
 
 Mock AI remains fallback so the demo still works if real AI fails.
