@@ -419,6 +419,11 @@ Safe property reports, lost items, and vehicle theft where the caller is safe
 should stay with AI intake unless danger appears or backend state says an
 operator is needed. There is no priority queue logic for now.
 
+For non-emergency property reports, the AI should follow an intake checklist
+and ask one useful missing-detail question at a time. It should not drift into
+generic closing loops like "Do you need help with anything else?" or "Do you
+want me to stay on the line?" until enough report details are collected.
+
 ---
 
 ## What I Need From Teammates

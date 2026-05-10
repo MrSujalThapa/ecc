@@ -105,12 +105,136 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
     expectedCallSessionPatch: {
       should_escalate: false,
       next_question:
-        "Can you describe the bike and where it was last seen?",
+        "Where was the bike last seen?",
     },
     expectedCallerResponse:
-      "I'll collect the details for a report. Can you describe the bike and where it was last seen?",
+      "I'll collect the details for a report. Where was the bike last seen?",
     notes:
-      '"non-emergency unit dispatched" is not allowed unless backend/operator/voice state confirms dispatch. Bike theft with a safe caller should continue AI intake with no transfer or dispatch promise.',
+      'Bike theft with a safe caller should continue AI intake with no transfer or dispatch promise. Ask useful checklist questions before any generic closing. "non-emergency unit dispatched" is not allowed unless backend/operator/voice state confirms dispatch.',
+  },
+  {
+    id: "agentic-bike-theft-turn-2-location",
+    name: "Bike theft location provided",
+    mode: "normal",
+    latestTranscript: "It was last seen outside Dana Porter Library.",
+    languageHint: null,
+    transcriptHistory: [
+      "AI: Tell me the emergency.",
+      "Caller: My bike was stolen.",
+      "AI: I'll collect the details for a report. Where was the bike last seen?",
+    ],
+    currentIncident: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      missing_fields: [
+        "bike_description",
+        "last_seen_location",
+        "time_last_seen",
+        "lock_status",
+        "suspect_info",
+        "callback_number",
+      ],
+    },
+    currentCallSession: {
+      should_escalate: false,
+      next_question: "Where was the bike last seen?",
+    },
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [
+      {
+        id: "tr-bike-dp-location",
+        tool: "geocode_location",
+        args: {
+          location_text: "Dana Porter Library",
+          city_context: "Waterloo",
+          country_context: "Canada",
+        },
+        reason: "Caller gave a last-seen location for the bike theft report.",
+        safety_level: "read_only",
+      },
+    ],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      location: "Dana Porter Library",
+      missing_fields: [
+        "bike_description",
+        "time_last_seen",
+        "lock_status",
+        "suspect_info",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "Can you describe the bike, including color, brand, type, or unique features?",
+    },
+    expectedCallerResponse:
+      "Can you describe the bike, including color, brand, type, or unique features?",
+    notes:
+      'After location is provided, ask bike description next. Do not ask "Do you need help with anything else?" yet, do not ask "Are you still at that location?" unless safety/location is uncertain, and do not close until required report details are collected.',
+  },
+  {
+    id: "agentic-bike-theft-turn-3-description",
+    name: "Bike theft description provided",
+    mode: "normal",
+    latestTranscript:
+      "It's a black Trek mountain bike with a red bottle holder.",
+    languageHint: null,
+    transcriptHistory: [
+      "AI: Tell me the emergency.",
+      "Caller: My bike was stolen.",
+      "AI: I'll collect the details for a report. Where was the bike last seen?",
+      "Caller: It was last seen outside Dana Porter Library.",
+      "AI: Can you describe the bike, including color, brand, type, or unique features?",
+    ],
+    currentIncident: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      location: "Dana Porter Library",
+      missing_fields: [
+        "bike_description",
+        "time_last_seen",
+        "lock_status",
+        "suspect_info",
+        "callback_number",
+      ],
+    },
+    currentCallSession: {
+      should_escalate: false,
+      next_question:
+        "Can you describe the bike, including color, brand, type, or unique features?",
+    },
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "bike_theft",
+      operator_required: false,
+      collected_fields: {
+        bike_description:
+          "Black Trek mountain bike with a red bottle holder.",
+      },
+      missing_fields: [
+        "time_last_seen",
+        "lock_status",
+        "suspect_info",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "What time was it last seen, and was it locked?",
+    },
+    expectedCallerResponse:
+      "What time was it last seen, and was it locked?",
+    notes:
+      'After description is collected, ask time last seen or lock status next. Do not ask "Do you want me to stay on the line?", "Do you need help with anything else?", or close the report before time, lock status, suspect/witness info, and callback details are collected.',
   },
   {
     id: "agentic-active-break-in-no-location",
