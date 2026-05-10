@@ -424,6 +424,12 @@ and ask one useful missing-detail question at a time. It should not drift into
 generic closing loops like "Do you need help with anything else?" or "Do you
 want me to stay on the line?" until enough report details are collected.
 
+To debug repeated questions in live voice flow, set `ECC_VOICE_DEBUG=true`
+locally and inspect `[ECC Voice Debug] before-ai`, `after-ai`, and
+`after-merge` logs. These logs summarize transcript excerpts, cached state,
+missing fields, provider, AI patches, and merged state without logging secrets
+or raw request bodies.
+
 ---
 
 ## What I Need From Teammates
