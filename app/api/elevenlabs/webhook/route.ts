@@ -48,6 +48,10 @@ import {
   patchVoiceSessionIds,
   patchVoiceTriageState,
 } from "@/lib/voice/voiceSessionStore";
+import type {
+  VoiceTranscriptHistoryTurn,
+  VoiceTriageState,
+} from "@/lib/voice/voiceSessionStore";
 import { enrichTranscriptWithIbmTranslation } from "@/lib/voice/transcriptTranslation";
 import { translateEnglishToLanguageWithIbm } from "@/lib/voice/ibmLanguageTranslator";
 
@@ -71,7 +75,7 @@ const generateVoiceReplyViaFeatherless = async (
   conversationMessages: Array<{ role: "user" | "assistant"; content: string }>,
   latestText: string,
   callerLanguage?: string | null,
-  triageState?: { incident_type?: string | null; location?: string | null; collected_fields?: Record<string, string> | null; missing_fields?: string[] | null } | null
+  triageState?: VoiceTriageState | null
 ): Promise<string> => {
   const key = process.env.FEATHERLESS_API_KEY?.trim();
   const model = process.env.FEATHERLESS_MODEL?.trim() ?? "google/gemma-3-4b-it";
@@ -85,7 +89,15 @@ const generateVoiceReplyViaFeatherless = async (
   if (triageState) {
     const known: string[] = [];
     if (triageState.incident_type) known.push(`incident type: ${triageState.incident_type}`);
+    if (triageState.urgency) known.push(`urgency: ${triageState.urgency}`);
     if (triageState.location) known.push(`location: ${triageState.location}`);
+    if (triageState.location_status) known.push(`location status: ${triageState.location_status}`);
+    if (triageState.summary) known.push(`summary: ${triageState.summary}`);
+    if (triageState.status) known.push(`incident status: ${triageState.status}`);
+    if (triageState.call_status) known.push(`call status: ${triageState.call_status}`);
+    if (triageState.control_state) known.push(`control state: ${triageState.control_state}`);
+    if (typeof triageState.operator_required === "boolean") known.push(`operator required: ${triageState.operator_required}`);
+    if (typeof triageState.should_escalate === "boolean") known.push(`should escalate: ${triageState.should_escalate}`);
     if (triageState.collected_fields) {
       for (const [k, v] of Object.entries(triageState.collected_fields)) {
         known.push(`${k}: ${v}`);
@@ -96,6 +108,20 @@ const generateVoiceReplyViaFeatherless = async (
     }
     if (triageState.missing_fields && triageState.missing_fields.length > 0) {
       additions.push(`Still need from caller: ${triageState.missing_fields.join(", ")}.`);
+    }
+    if (triageState.last_question) {
+      additions.push(`Last AI question asked: ${triageState.last_question}. Do not repeat it unless the caller asks you to.`);
+    }
+    if (triageState.next_question) {
+      additions.push(`Continue with this next intake question if still relevant: ${triageState.next_question}.`);
+    }
+    const recentHistory = triageState.recent_transcript_history ?? triageState.transcriptHistory ?? [];
+    if (recentHistory.length > 0) {
+      const recentLines = recentHistory
+        .slice(-6)
+        .map((turn) => `${turn.role}: ${turn.text}`)
+        .join(" | ");
+      additions.push(`Recent final voice turns: ${recentLines}.`);
     }
   }
 
@@ -235,6 +261,51 @@ const summarizeKeys = (value: unknown): string[] =>
     ? Object.keys(value as Record<string, unknown>).sort()
     : [];
 
+const recentHistoryFor = (
+  state: VoiceTriageState | null | undefined
+): VoiceTranscriptHistoryTurn[] => state?.recent_transcript_history ?? state?.transcriptHistory ?? [];
+
+const looksLikeQuestion = (value: string | null | undefined): boolean => {
+  const compact = shortText(value, 500);
+  if (!compact) return false;
+  return (
+    /\?\s*$/.test(compact) ||
+    /^(can|could|what|where|when|who|why|how|do|did|does|is|are|was|were|tell me|please tell me)\b/i.test(compact)
+  );
+};
+
+const lastQuestionFrom = (
+  sayToCaller: string | null | undefined,
+  nextQuestion?: string | null
+): string | null => {
+  if (nextQuestion && looksLikeQuestion(nextQuestion)) return nextQuestion;
+  if (sayToCaller && looksLikeQuestion(sayToCaller)) return sayToCaller;
+  return null;
+};
+
+const voiceStateDebugFields = (
+  state: VoiceTriageState | null | undefined,
+  transcriptHistoryLength: number | null
+): Record<string, unknown> => ({
+  transcriptHistoryLength,
+  incident_type_before: state?.incident_type ?? null,
+  urgency_before: state?.urgency ?? null,
+  summary_before: shortText(state?.summary),
+  status_before: state?.status ?? null,
+  call_status_before: state?.call_status ?? null,
+  control_state_before: state?.control_state ?? null,
+  ai_active_before: state?.ai_active ?? null,
+  operator_required_before: state?.operator_required ?? null,
+  should_escalate_before: state?.should_escalate ?? null,
+  location_status_before: state?.location_status ?? null,
+  location_before: shortText(state?.location, 100),
+  collected_fields_keys_before: summarizeKeys(state?.collected_fields),
+  missing_fields_before: state?.missing_fields ?? null,
+  previous_next_question: shortText(state?.next_question),
+  last_question: shortText(state?.last_question),
+  last_say_to_caller: shortText(state?.last_say_to_caller),
+});
+
 const voiceDebug = (
   stage: "before-ai" | "after-ai" | "after-merge",
   payload: Record<string, unknown>
@@ -310,6 +381,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
     const resolvedTwilioCallSid = twilioCallSid;
+    let sessionLookupKey: string | undefined = conversationId ?? twilioCallSid ?? undefined;
 
     // Fallback: look up by conversation_id
     if ((!resolvedIncidentId || !resolvedCallSessionId) && conversationId) {
@@ -317,6 +389,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (entry) {
         resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
         resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
+        sessionLookupKey = conversationId;
       }
     }
 
@@ -326,6 +399,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (entry) {
         resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
         resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
+        sessionLookupKey = twilioCallSid;
       }
     }
 
@@ -354,6 +428,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (fpEntry) {
         resolvedIncidentId = fpEntry.incident_id;
         resolvedCallSessionId = fpEntry.call_session_id;
+        sessionLookupKey = fingerprint;
         console.info(
           `[elevenlabs/webhook] Resolved session via fingerprint: incident=${resolvedIncidentId}`
         );
@@ -372,6 +447,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           mode: "normal",
         });
         updateVoiceSessionElevenLabsId(fingerprint, fingerprint);
+        sessionLookupKey = fingerprint;
         if (conversationId && conversationId !== fingerprint) {
           registerVoiceSession({
             twilio_call_sid: conversationId,
@@ -440,7 +516,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     // Read cached triage state from the previous turn (populated async after
     // repositoryCallTurn resolves). This tells Featherless what has already
     // been gathered so it never asks for the same thing twice.
-    const sessionKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
+    const sessionKey = sessionLookupKey ?? conversationId ?? twilioCallSid ?? resolvedIncidentId;
     const cachedTriageState = sessionKey
       ? (getSessionByElevenLabsId(sessionKey) ?? getSessionByTwilioSid(sessionKey ?? ""))?.triage_state
       : undefined;
@@ -562,15 +638,12 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         route: "/api/elevenlabs/webhook",
         path: "custom_llm_voice_reply",
         latestTranscript: shortText(reasoningText),
-        transcriptHistoryLength: conversationMessages.length,
         incident_id: resolvedIncidentId,
         call_session_id: resolvedCallSessionId,
-        incident_type_before: cachedTriageState?.incident_type ?? null,
-        urgency_before: null,
-        location_before: shortText(cachedTriageState?.location, 100),
-        collected_fields_keys_before: summarizeKeys(cachedTriageState?.collected_fields),
-        missing_fields_before: cachedTriageState?.missing_fields ?? null,
-        previous_next_question: null,
+        ...voiceStateDebugFields(
+          cachedTriageState,
+          Math.max(conversationMessages.length, recentHistoryFor(cachedTriageState).length)
+        ),
         provider: "featherless",
       });
 
@@ -623,6 +696,15 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       path: "custom_llm_voice_reply",
       say_to_caller: shortText(sayToCaller),
       provider: voiceReplyProvider,
+      transcriptHistoryLength: recentHistoryFor(cachedTriageState).length,
+      urgency: cachedTriageState?.urgency ?? null,
+      summary: shortText(cachedTriageState?.summary),
+      next_question: shortText(cachedTriageState?.next_question),
+      last_question: shortText(cachedTriageState?.last_question),
+      missing_fields: cachedTriageState?.missing_fields ?? null,
+      collected_fields_keys: summarizeKeys(cachedTriageState?.collected_fields),
+      operator_required: cachedTriageState?.operator_required ?? null,
+      should_escalate: cachedTriageState?.should_escalate ?? null,
       incident_patch_urgency: null,
       incident_patch_incident_type: null,
       incident_patch_location: null,
@@ -633,8 +715,23 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       tool_requests: [],
     });
 
+    // Persist immediate voice memory before the async repository turn finishes,
+    // so fast follow-up turns still see what was just asked.
+    const turnSessionKey = sessionLookupKey ?? conversationId ?? twilioCallSid ?? resolvedIncidentId;
+    const nowIso = new Date().toISOString();
+    if (turnSessionKey) {
+      patchVoiceTriageState(turnSessionKey, {
+        recent_transcript_history: [
+          { role: "caller", text: reasoningText, created_at: nowIso },
+          { role: "ai", text: sayToCaller, created_at: nowIso },
+        ],
+        last_say_to_caller: sayToCaller,
+        last_question: lastQuestionFrom(sayToCaller),
+        last_updated_at: nowIso,
+      });
+    }
+
     // Persist transcript + incident update async -- cache triage state for next turn.
-    const turnSessionKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
     if (isNewCall) {
       // Turn 1: capture transcript data now (closure), then wait for real Supabase
       // IDs via realIdsReady. This handles both orderings:
@@ -643,7 +740,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       const t1Text = latestUserText;
       const t1Language = translated.language;
       const t1TranslatedText = translated.translated_text;
-      const t1TriageKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
+      const t1TriageKey = turnSessionKey;
       void realIdsReady.then(async (realIds) => {
         if (!realIds) return;
         try {
@@ -676,24 +773,46 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           const inc = result.incident;
           patchVoiceTriageState(t1TriageKey, {
             incident_type: inc.incident_type ?? null,
+            urgency: inc.urgency ?? null,
             location: inc.location ?? null,
+            location_status: inc.location_status ?? null,
+            summary: inc.summary ?? null,
+            status: inc.status ?? null,
+            call_status: result.call_session.status ?? null,
+            control_state: inc.control_state ?? null,
+            ai_active: result.call_session.ai_active ?? inc.ai_active ?? null,
+            operator_required: inc.operator_required ?? null,
+            should_escalate: result.call_session.should_escalate ?? null,
+            operator_transfer_status: result.call_session.operator_transfer_status ?? null,
+            next_question: result.call_session.next_question ?? null,
+            last_question: lastQuestionFrom(result.say_to_caller, result.call_session.next_question),
+            last_say_to_caller: result.say_to_caller,
             collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
             missing_fields: inc.missing_fields ?? null,
+            last_updated_at: new Date().toISOString(),
           });
           voiceDebug("after-merge", {
             route: "/api/elevenlabs/webhook",
             path: "repositoryCallTurn_async_turn1",
             say_to_caller: shortText(result.say_to_caller),
+            transcriptHistoryLength: recentHistoryFor(getSessionByElevenLabsId(t1TriageKey)?.triage_state ?? getSessionByTwilioSid(t1TriageKey)?.triage_state).length,
             incident_id: inc.id,
             public_id: inc.public_id,
             call_session_id: result.call_session.id,
             incident_type: inc.incident_type,
             urgency: inc.urgency,
+            summary: shortText(inc.summary),
+            status: inc.status,
+            control_state: inc.control_state,
+            location_status: inc.location_status,
+            operator_required: inc.operator_required,
             location: shortText(inc.location, 100),
             collected_fields_keys: summarizeKeys(inc.collected_fields),
             missing_fields: inc.missing_fields,
             next_question: shortText(result.call_session.next_question),
+            last_question: shortText(lastQuestionFrom(result.say_to_caller, result.call_session.next_question)),
             should_escalate: result.call_session.should_escalate,
+            operator_transfer_status: result.call_session.operator_transfer_status,
             system_actions: result.actions.map((action) => action.action),
             tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
             provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
@@ -713,15 +832,12 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         route: "/api/elevenlabs/webhook",
         path: "repositoryCallTurn_async_turn2_plus",
         latestTranscript: shortText(translated.translated_text ?? latestUserText),
-        transcriptHistoryLength: turnNumber,
         incident_id: resolvedIncidentId,
         call_session_id: resolvedCallSessionId,
-        incident_type_before: cachedTriageState?.incident_type ?? null,
-        urgency_before: null,
-        location_before: shortText(cachedTriageState?.location, 100),
-        collected_fields_keys_before: summarizeKeys(cachedTriageState?.collected_fields),
-        missing_fields_before: cachedTriageState?.missing_fields ?? null,
-        previous_next_question: null,
+        ...voiceStateDebugFields(
+          cachedTriageState,
+          Math.max(turnNumber, recentHistoryFor(cachedTriageState).length)
+        ),
         provider: process.env.AI_PROVIDER ?? null,
       });
       void repositoryCallTurn({
@@ -739,16 +855,29 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           route: "/api/elevenlabs/webhook",
           path: "repositoryCallTurn_async_turn2_plus",
           say_to_caller: shortText(result.say_to_caller),
+          transcriptHistoryLength: turnSessionKey
+            ? recentHistoryFor(
+                getSessionByElevenLabsId(turnSessionKey)?.triage_state ??
+                  getSessionByTwilioSid(turnSessionKey)?.triage_state
+              ).length
+            : null,
           incident_id: inc.id,
           public_id: inc.public_id,
           call_session_id: result.call_session.id,
           incident_type: inc.incident_type,
           urgency: inc.urgency,
+          summary: shortText(inc.summary),
+          status: inc.status,
+          control_state: inc.control_state,
+          location_status: inc.location_status,
+          operator_required: inc.operator_required,
           location: shortText(inc.location, 100),
           collected_fields_keys: summarizeKeys(inc.collected_fields),
           missing_fields: inc.missing_fields,
           next_question: shortText(result.call_session.next_question),
+          last_question: shortText(lastQuestionFrom(result.say_to_caller, result.call_session.next_question)),
           should_escalate: result.call_session.should_escalate,
+          operator_transfer_status: result.call_session.operator_transfer_status,
           system_actions: result.actions.map((action) => action.action),
           tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
           provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
@@ -756,9 +885,23 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         if (turnSessionKey) {
           patchVoiceTriageState(turnSessionKey, {
             incident_type: inc.incident_type ?? null,
+            urgency: inc.urgency ?? null,
             location: inc.location ?? null,
+            location_status: inc.location_status ?? null,
+            summary: inc.summary ?? null,
+            status: inc.status ?? null,
+            call_status: result.call_session.status ?? null,
+            control_state: inc.control_state ?? null,
+            ai_active: result.call_session.ai_active ?? inc.ai_active ?? null,
+            operator_required: inc.operator_required ?? null,
+            should_escalate: result.call_session.should_escalate ?? null,
+            operator_transfer_status: result.call_session.operator_transfer_status ?? null,
+            next_question: result.call_session.next_question ?? null,
+            last_question: lastQuestionFrom(result.say_to_caller, result.call_session.next_question),
+            last_say_to_caller: result.say_to_caller,
             collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
             missing_fields: inc.missing_fields ?? null,
+            last_updated_at: new Date().toISOString(),
           });
           console.info(
             `[elevenlabs/webhook] Triage state cached: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"} missing=${(inc.missing_fields ?? []).join(",") || "none"}`
@@ -827,15 +970,12 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         route: "/api/elevenlabs/webhook",
         path: "transcript_event",
         latestTranscript: shortText(text),
-        transcriptHistoryLength: null,
         incident_id: entry.incident_id,
         call_session_id: entry.call_session_id,
-        incident_type_before: entry.triage_state?.incident_type ?? null,
-        urgency_before: null,
-        location_before: shortText(entry.triage_state?.location, 100),
-        collected_fields_keys_before: summarizeKeys(entry.triage_state?.collected_fields),
-        missing_fields_before: entry.triage_state?.missing_fields ?? null,
-        previous_next_question: null,
+        ...voiceStateDebugFields(
+          entry.triage_state,
+          recentHistoryFor(entry.triage_state).length
+        ),
         provider: process.env.AI_PROVIDER ?? null,
       });
 
@@ -847,20 +987,54 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         is_final: true,
         source: VOICE_SOURCE_LABEL,
       });
+      const inc = result.incident;
+      const transcriptPatchTime = new Date().toISOString();
+      patchVoiceTriageState(conversationId, {
+        incident_type: inc.incident_type ?? null,
+        urgency: inc.urgency ?? null,
+        location: inc.location ?? null,
+        location_status: inc.location_status ?? null,
+        summary: inc.summary ?? null,
+        status: inc.status ?? null,
+        call_status: result.call_session.status ?? null,
+        control_state: inc.control_state ?? null,
+        ai_active: result.call_session.ai_active ?? inc.ai_active ?? null,
+        operator_required: inc.operator_required ?? null,
+        should_escalate: result.call_session.should_escalate ?? null,
+        operator_transfer_status: result.call_session.operator_transfer_status ?? null,
+        next_question: result.call_session.next_question ?? null,
+        last_question: lastQuestionFrom(result.say_to_caller, result.call_session.next_question),
+        last_say_to_caller: result.say_to_caller,
+        recent_transcript_history: [
+          { role: "caller", text, created_at: transcriptPatchTime },
+          { role: "ai", text: result.say_to_caller ?? "", created_at: transcriptPatchTime },
+        ],
+        collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
+        missing_fields: inc.missing_fields ?? null,
+        last_updated_at: transcriptPatchTime,
+      });
       voiceDebug("after-merge", {
         route: "/api/elevenlabs/webhook",
         path: "transcript_event",
         say_to_caller: shortText(result.say_to_caller),
+        transcriptHistoryLength: recentHistoryFor(entry.triage_state).length,
         incident_id: result.incident.id,
         public_id: result.incident.public_id,
         call_session_id: result.call_session.id,
         incident_type: result.incident.incident_type,
         urgency: result.incident.urgency,
+        summary: shortText(result.incident.summary),
+        status: result.incident.status,
+        control_state: result.incident.control_state,
+        location_status: result.incident.location_status,
+        operator_required: result.incident.operator_required,
         location: shortText(result.incident.location, 100),
         collected_fields_keys: summarizeKeys(result.incident.collected_fields),
         missing_fields: result.incident.missing_fields,
         next_question: shortText(result.call_session.next_question),
+        last_question: shortText(lastQuestionFrom(result.say_to_caller, result.call_session.next_question)),
         should_escalate: result.call_session.should_escalate,
+        operator_transfer_status: result.call_session.operator_transfer_status,
         system_actions: result.actions.map((action) => action.action),
         tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
         provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
