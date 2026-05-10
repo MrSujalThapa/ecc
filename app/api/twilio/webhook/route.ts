@@ -111,6 +111,8 @@ export const POST = async (request: Request): Promise<NextResponse> => {
 
     twiml = buildTwimlConnectElevenLabs({
       signedUrl: conv?.signed_url ?? null,
+      incidentId: incidentId,
+      callSessionId: callSessionId,
     });
 
     console.info(
