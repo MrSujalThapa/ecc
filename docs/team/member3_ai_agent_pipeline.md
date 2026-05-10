@@ -400,9 +400,21 @@ Backend validates and executes actions.
 Human operators remain in control.
 ```
 
-Caller-facing responses must not imply dispatch has occurred unless backend
-state or an operator has confirmed it. For safe vehicle theft report intake,
-the AI should collect details and avoid phrases like "help is on the way."
+### Call Transfer and Dispatch Wording Rules
+
+AI only recommends transfer through structured fields. Backend checks operator
+availability and decides whether transfer should happen; voice/Twilio performs
+the actual live call transfer.
+
+Caller-facing responses must not imply dispatch has occurred unless backend,
+voice, or an operator has confirmed it. For safe vehicle theft and property
+report intake, the AI should collect details and avoid phrases like "help is on
+the way", "police are coming", "firefighters are coming", or "ambulance is
+coming."
+
+Safe property reports, lost items, and vehicle theft where the caller is safe
+should stay with AI intake unless danger appears or backend state says an
+operator is needed. There is no priority queue logic for now.
 
 ---
 
