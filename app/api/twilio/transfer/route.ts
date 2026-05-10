@@ -9,23 +9,33 @@
  *   { twilio_call_sid: string, incident_id: string, call_session_id: string }
  *
  * Flow:
- *   1. Look up the operator forward number from config
- *   2. Redirect the live Twilio call to the operator's phone via Twilio REST API
- *   3. Call /api/call/end with reason="transferred"
- *   4. Update the incident to human_active via /api/operator/takeover
+ *   1. Load incident mode; pick operator E.164 via resolveOperatorForwardE164
+ *   2. Mark call_session.operator_transfer_status = transferring + audit
+ *   3. Redirect the live Twilio call via Twilio REST API
+ *   4. On failure: mark transfer failed, roll back incident if needed, audit
+ *   5. On success: operator takeover, call end, transfer_completed audit
  *
  * Security: This endpoint should only be called by server-side code (ElevenLabs
  * webhook handler). Add authentication if exposing externally.
  */
 
 import { NextResponse } from "next/server";
-import { repositoryCallEnd, repositoryOperatorTakeover } from "@/lib/db/call-repository";
+import {
+  repositoryCallEnd,
+  repositoryLogTransferCompleted,
+  repositoryMarkTransferBridging,
+  repositoryMarkTransferFailed,
+  repositoryOperatorTakeover,
+} from "@/lib/db/call-repository";
+import { mapIncidentRow } from "@/lib/db/mappers";
 import {
   buildTwimlTransfer,
   redirectTwilioCall,
 } from "@/lib/voice/twilioClient";
-import { twilioConfig } from "@/lib/voice/voiceConfig";
+import { resolveOperatorForwardE164, twilioConfig } from "@/lib/voice/voiceConfig";
 import { removeVoiceSession } from "@/lib/voice/voiceSessionStore";
+import { getServiceRoleClient } from "@/lib/supabase/service";
+import type { AppMode } from "@/lib/types/enums";
 import { z } from "zod";
 
 const transferRequestSchema = z.object({
@@ -35,6 +45,18 @@ const transferRequestSchema = z.object({
   /** Optional operator ID for audit log. Defaults to "operator_transfer". */
   operator_id: z.string().optional(),
 });
+
+const loadIncidentMode = async (incident_id: string): Promise<AppMode> => {
+  const client = getServiceRoleClient();
+  if (!client) return "normal";
+  const { data, error } = await client
+    .from("incidents")
+    .select("*")
+    .eq("id", incident_id)
+    .single();
+  if (error || !data) return "normal";
+  return mapIncidentRow(data as Record<string, unknown>).mode;
+};
 
 export const POST = async (request: Request): Promise<NextResponse> => {
   let body: unknown;
@@ -55,10 +77,11 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   const { twilio_call_sid, incident_id, call_session_id, operator_id } = parsed.data;
   const operatorId = operator_id ?? "operator_transfer";
 
-  const operatorNumber = twilioConfig.operatorForwardNumber;
+  const mode = await loadIncidentMode(incident_id);
+  const operatorNumber = resolveOperatorForwardE164(mode);
   if (!operatorNumber) {
     console.error(
-      "[twilio/transfer] TWILIO_OPERATOR_FORWARD_NUMBER not set. Cannot transfer call."
+      "[twilio/transfer] No operator forward number configured (primary or ALT for this mode)."
     );
     return NextResponse.json(
       { ok: false, error: "Operator forward number not configured" },
@@ -66,7 +89,12 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     );
   }
 
-  // 1. Redirect the live Twilio call to the operator phone
+  try {
+    await repositoryMarkTransferBridging({ incident_id, call_session_id });
+  } catch (e) {
+    console.error("[twilio/transfer] Bridging state error:", e);
+  }
+
   const twiml = buildTwimlTransfer(operatorNumber);
   let transferOk = false;
 
@@ -87,10 +115,27 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     console.warn(
       "[twilio/transfer] Twilio not configured — skipping live call redirect (stub mode)."
     );
-    transferOk = true; // Allow state updates to proceed in stub mode
+    transferOk = true;
   }
 
-  // 2. Mark incident as human_active via operator takeover
+  if (!transferOk) {
+    try {
+      await repositoryMarkTransferFailed({
+        incident_id,
+        call_session_id,
+        error_message: "twilio_redirect_failed",
+      });
+    } catch (e) {
+      console.error("[twilio/transfer] Mark transfer failed error:", e);
+    }
+    return NextResponse.json({
+      ok: false,
+      transfer_initiated: false,
+      operator_number: operatorNumber,
+      error: "Twilio redirect failed",
+    });
+  }
+
   try {
     await repositoryOperatorTakeover({
       incident_id,
@@ -103,7 +148,6 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     console.error("[twilio/transfer] Takeover error:", e);
   }
 
-  // 3. Close the call session with reason=transferred
   try {
     await repositoryCallEnd({
       incident_id,
@@ -114,7 +158,12 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     console.error("[twilio/transfer] Call end error:", e);
   }
 
-  // 4. Clean up voice session store
+  try {
+    await repositoryLogTransferCompleted({ incident_id, call_session_id });
+  } catch (e) {
+    console.error("[twilio/transfer] transfer_completed audit error:", e);
+  }
+
   removeVoiceSession(twilio_call_sid);
 
   return NextResponse.json({

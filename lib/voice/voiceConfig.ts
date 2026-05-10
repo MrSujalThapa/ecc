@@ -8,6 +8,8 @@
  * The demo runs without these keys using stub/mock fallbacks.
  */
 
+import type { AppMode } from "@/lib/types/enums";
+
 // ---------------------------------------------------------------------------
 // Twilio config
 // ---------------------------------------------------------------------------
@@ -27,10 +29,29 @@ export const twilioConfig = {
   get operatorForwardNumber(): string {
     return process.env.TWILIO_OPERATOR_FORWARD_NUMBER ?? "";
   },
+  /**
+   * Optional alternate operator / queue line for disaster or high-load routing.
+   * When unset, {@link resolveOperatorForwardE164} falls back to the primary number.
+   */
+  get operatorForwardNumberAlternate(): string {
+    return process.env.TWILIO_OPERATOR_FORWARD_NUMBER_ALT ?? "";
+  },
   /** True when account SID, auth token, and phone number are all set. */
   get isConfigured(): boolean {
     return Boolean(this.accountSid && this.authToken && this.phoneNumber);
   },
+};
+
+/**
+ * Picks the Twilio dial target for operator transfer.
+ * Disaster / world_cup use {@link twilioConfig.operatorForwardNumberAlternate}
+ * when set, so calls can land on a different queue than normal mode.
+ */
+export const resolveOperatorForwardE164 = (mode: AppMode): string => {
+  const primary = twilioConfig.operatorForwardNumber.trim();
+  const alt = twilioConfig.operatorForwardNumberAlternate.trim();
+  if (mode !== "normal" && alt) return alt;
+  return primary;
 };
 
 // ---------------------------------------------------------------------------
