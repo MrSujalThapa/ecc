@@ -136,10 +136,13 @@ AI only recommends transfer through structured fields. Backend checks operator
 availability and decides whether transfer should happen; voice/Twilio performs
 the actual live call transfer.
 
-Caller-facing responses must not imply dispatch has occurred unless backend,
-voice, or an operator has confirmed it. Avoid "help is on the way", "police are
-coming", "firefighters are coming", or "ambulance is coming" for report-intake
-cases like safe vehicle theft or lost property.
+Caller-facing responses must not imply dispatch, transfer, or notification has
+occurred unless backend, voice, or an operator has confirmed it. Avoid "help is
+on the way", "police are coming", "firefighters are coming", "ambulance is
+coming", "unit dispatched", "non-emergency unit dispatched",
+"officer dispatched", "responder dispatched", "someone is on the way",
+"a team has been sent", or "authorities have been notified" for report-intake
+cases like bike theft, safe vehicle theft, or lost property.
 
 Safe property reports, lost items, and vehicle theft where the caller is safe
 should stay with AI intake unless danger appears or backend state says an
