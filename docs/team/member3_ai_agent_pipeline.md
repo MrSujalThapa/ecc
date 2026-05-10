@@ -558,6 +558,32 @@ docs/team/member3_ai_agent_pipeline.md
 
 ---
 
+## Surge / GeoOps Status
+
+Done:
+
+```text
+Surge / GeoOps output schema
+runSurgeGeoOpsAgent helper
+/api/surge/analyze route wired for functional analysis
+```
+
+Left:
+
+```text
+optional database persistence of cluster_id / priority_score
+dashboard visualization of GeoOps recommendations
+optional model-backed Featherless GeoOps reasoning
+optional Mapbox route/help-point visualization
+backend/operator confirmation for any real actions
+```
+
+The current `/api/surge/analyze` route returns validated analysis JSON only. It
+does not mutate Supabase, call Mapbox directly, execute external tools, or
+dispatch responders.
+
+---
+
 ## Final Hackathon Demo Flow
 
 The final demo flow should be:

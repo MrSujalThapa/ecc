@@ -1,30 +1,100 @@
 import { NextResponse } from "next/server";
-import type { SurgeAnalyzeResponse } from "@/lib/types/api";
-import { jsonError, zodToMessage } from "@/lib/server/api-route-helpers";
-import { repositorySurgeAnalyze } from "@/lib/db/call-repository";
-import { surgeAnalyzeRequestSchema } from "@/lib/validation/api-requests";
+import {
+  runSurgeGeoOpsAgent,
+  type SurgeGeoOpsMode,
+} from "@/lib/ai/agents/surgeGeoOpsAgent";
+import { listAllIncidentsSorted } from "@/lib/server/demo-store";
+import { getMockResponders } from "@/lib/server/responders-mock-data";
+
+type SurgeAnalyzeProvider = "mock" | "featherless";
+
+type SurgeAnalyzeBody = {
+  mode?: unknown;
+  activeIncidents?: unknown;
+  responders?: unknown;
+  eventLayers?: unknown;
+  recentToolResults?: unknown;
+  provider?: unknown;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const asRecordArray = (value: unknown): Array<Record<string, unknown>> | null =>
+  Array.isArray(value) ? value.filter(isRecord) : null;
+
+const hasOwn = (value: object, key: keyof SurgeAnalyzeBody): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const normalizeMode = (value: unknown): SurgeGeoOpsMode =>
+  value === "world_cup" ? "world_cup" : "disaster";
+
+const normalizeProvider = (value: unknown): SurgeAnalyzeProvider | undefined =>
+  value === "mock" || value === "featherless" ? value : undefined;
+
+const loadDemoStoreIncidents = (
+  mode: SurgeGeoOpsMode
+): Array<Record<string, unknown>> =>
+  listAllIncidentsSorted()
+    .filter(
+      (incident) =>
+        incident.mode === mode &&
+        incident.status !== "resolved" &&
+        incident.status !== "abandoned"
+    )
+    .map((incident) => ({ ...incident }));
+
+const safeErrorMessage = (error: unknown): string =>
+  error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : "surge analysis failed";
 
 export const POST = async (request: Request): Promise<NextResponse> => {
-  let body: unknown = {};
+  let rawBody: unknown = {};
   try {
     const text = await request.text();
     if (text.trim() !== "") {
-      body = JSON.parse(text) as unknown;
+      rawBody = JSON.parse(text) as unknown;
     }
   } catch {
-    return jsonError("Invalid JSON body", 400);
-  }
-
-  const parsed = surgeAnalyzeRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return jsonError(zodToMessage(parsed.error), 400);
+    return NextResponse.json(
+      { ok: false, error: { message: "Invalid JSON body" } },
+      { status: 400 }
+    );
   }
 
   try {
-    const payload: SurgeAnalyzeResponse = await repositorySurgeAnalyze(parsed.data);
-    return NextResponse.json(payload);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "surge analyze failed";
-    return jsonError(msg, 500);
+    const body: SurgeAnalyzeBody = isRecord(rawBody) ? rawBody : {};
+    const mode = normalizeMode(body.mode);
+    const activeIncidents = hasOwn(body, "activeIncidents")
+      ? asRecordArray(body.activeIncidents) ?? []
+      : loadDemoStoreIncidents(mode);
+    const responders = hasOwn(body, "responders")
+      ? asRecordArray(body.responders) ?? []
+      : getMockResponders().map((responder) => ({ ...responder }));
+    const eventLayers = hasOwn(body, "eventLayers")
+      ? asRecordArray(body.eventLayers) ?? []
+      : [];
+    const recentToolResults = Array.isArray(body.recentToolResults)
+      ? body.recentToolResults
+      : [];
+    const provider =
+      normalizeProvider(body.provider) ?? normalizeProvider(process.env.AI_PROVIDER);
+
+    const analysis = await runSurgeGeoOpsAgent({
+      mode,
+      activeIncidents,
+      responders,
+      eventLayers,
+      recentToolResults,
+      provider,
+    });
+
+    return NextResponse.json({ ok: true, analysis });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: { message: safeErrorMessage(error) } },
+      { status: 500 }
+    );
   }
 };
