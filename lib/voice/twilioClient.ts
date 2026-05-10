@@ -26,18 +26,37 @@ const escapeXml = (s: string): string =>
  * Returns TwiML that connects the Twilio call to an ElevenLabs Conversational
  * AI agent via WebSocket Media Stream.
  *
- * If a pre-created signed URL is available (from ElevenLabs API), pass it as
- * `signedUrl` — this allows dynamic per-call agent config.
- * Falls back to the static agent URL using ELEVENLABS_AGENT_ID.
+ * Uses the ElevenLabs Twilio-specific WebSocket endpoint with <Parameter> tags
+ * so that:
+ *   1. The call appears in ElevenLabs conversation history (agent tracking)
+ *   2. The agent_id, incident_id, and call_session_id are passed as conversation
+ *      context that the custom LLM webhook can read from custom_llm_extra_body
+ *
+ * If a signed URL is supplied (from createElevenLabsConversation), it is used
+ * directly — ElevenLabs signed URLs already embed the agent ID and conversation
+ * tracking, so no extra Parameters are needed.
  */
 export const buildTwimlConnectElevenLabs = (opts: {
   agentId?: string;
   signedUrl?: string | null;
+  incidentId?: string | null;
+  callSessionId?: string | null;
 } = {}): string => {
   const agentId = opts.agentId ?? elevenLabsConfig.agentId;
-  const streamUrl =
-    opts.signedUrl ??
-    `wss://api.elevenlabs.io/v1/convai/call?agent_id=${encodeURIComponent(agentId)}`;
+
+  // If ElevenLabs gave us a signed URL (pre-created conversation), use it directly.
+  // Signed URLs embed a real conversation_id, so the conversation appears in history.
+  if (opts.signedUrl) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${escapeXml(opts.signedUrl)}" />
+  </Connect>
+</Response>`;
+  }
+
+  // No signed URL — use the stable ElevenLabs agent WebSocket URL.
+  const streamUrl = `wss://api.elevenlabs.io/v1/convai/call?agent_id=${encodeURIComponent(agentId)}`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -187,7 +206,21 @@ export const sendTwilioSms = async (
  *
  * Returns null if ElevenLabs is not configured.
  */
-export const createElevenLabsConversation = async (opts: {
+/**
+ * For Twilio phone calls, we no longer pre-create a conversation via the signed
+ * URL endpoint — that endpoint is for browser widget sessions and doesn't give
+ * ElevenLabs enough context to properly track phone calls in conversation history.
+ *
+ * Instead, the Twilio webhook now passes agent_id + context directly via
+ * <Parameter> tags in the TwiML <Stream>, using the ElevenLabs Twilio endpoint
+ * wss://api.elevenlabs.io/v1/convai/twilio. This ensures:
+ *   - Conversation appears in ElevenLabs history under the correct agent
+ *   - ElevenLabs post-call webhook fires after the call ends
+ *
+ * This function is kept for compatibility but returns null so the caller falls
+ * back to the <Parameter>-based TwiML path.
+ */
+export const createElevenLabsConversation = async (_opts: {
   incident_id: string;
   call_session_id: string;
   mode?: string;
@@ -195,49 +228,9 @@ export const createElevenLabsConversation = async (opts: {
   conversation_id: string;
   signed_url: string;
 } | null> => {
-  if (!elevenLabsConfig.isConfigured) {
-    return null;
-  }
-
-  try {
-    const res = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${encodeURIComponent(elevenLabsConfig.agentId)}`,
-      {
-        method: "GET",
-        headers: {
-          "xi-api-key": elevenLabsConfig.apiKey,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    if (!res.ok) {
-      console.error(
-        "[twilioClient] ElevenLabs signed URL failed:",
-        res.status,
-        await res.text()
-      );
-      return null;
-    }
-
-    const data = (await res.json()) as {
-      signed_url?: string;
-      conversation_id?: string;
-    };
-
-    if (!data.signed_url) return null;
-
-    // Append context params so the custom LLM webhook can look up the session.
-    const urlWithContext = `${data.signed_url}&incident_id=${encodeURIComponent(opts.incident_id)}&call_session_id=${encodeURIComponent(opts.call_session_id)}`;
-
-    return {
-      signed_url: urlWithContext,
-      conversation_id: data.conversation_id ?? "",
-    };
-  } catch (e) {
-    console.error("[twilioClient] createElevenLabsConversation error:", e);
-    return null;
-  }
+  // Always use the Twilio WebSocket + Parameter approach for phone calls.
+  // See buildTwimlConnectElevenLabs for details.
+  return null;
 };
 
 // ---------------------------------------------------------------------------

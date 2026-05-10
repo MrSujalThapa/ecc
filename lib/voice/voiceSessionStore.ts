@@ -11,6 +11,21 @@
  * Do not import from lib/db, lib/ai, or dashboard components.
  */
 
+/**
+ * Incident fields captured so far — populated after each async repositoryCallTurn
+ * resolves so the next voice turn can skip re-asking for already-known info.
+ */
+export type VoiceTriageState = {
+  /** e.g. "fire", "medical", "theft" */
+  incident_type?: string | null;
+  /** Free-text location string the caller gave. */
+  location?: string | null;
+  /** Fields already confirmed by the triage agent. */
+  collected_fields?: Record<string, string> | null;
+  /** Fields still needed. */
+  missing_fields?: string[] | null;
+};
+
 export type VoiceSessionEntry = {
   /** Backend incident UUID. */
   incident_id: string;
@@ -20,6 +35,12 @@ export type VoiceSessionEntry = {
   mode: string;
   /** ISO timestamp when this entry was created. */
   created_at: string;
+  /**
+   * Cached triage state from the last repositoryCallTurn response.
+   * Updated async after each turn — used by the next turn's voice prompt
+   * so Featherless knows what has already been collected.
+   */
+  triage_state?: VoiceTriageState;
 };
 
 // Map: twilio_call_sid → session entry
@@ -90,6 +111,23 @@ export const patchVoiceSessionIds = (
   entry.call_session_id = real_call_session_id;
   // Because all registered keys share the same object reference, a single
   // mutation updates all lookup paths simultaneously.
+};
+
+/**
+ * Update the cached triage state for a session.
+ * Called async after repositoryCallTurn resolves so the NEXT voice turn
+ * can inject collected/missing fields into the Featherless prompt.
+ *
+ * Looks up by any registered key (twilio SID or ElevenLabs conversation ID).
+ */
+export const patchVoiceTriageState = (
+  lookup_key: string,
+  state: VoiceTriageState
+): void => {
+  const entry = bySid.get(lookup_key) ?? byElId.get(lookup_key);
+  if (!entry) return;
+  // Merge into existing state so partial updates don't wipe prior data
+  entry.triage_state = { ...entry.triage_state, ...state };
 };
 
 /**

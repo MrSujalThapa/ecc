@@ -114,6 +114,71 @@ async function callWatsonxTranslate(
 }
 
 /**
+ * Translate English text into a target language via IBM watsonx.ai.
+ * Used to localise the agent's reply back into the caller's language.
+ * Returns null on any failure so the caller can fall back to English.
+ */
+export async function translateEnglishToLanguageWithIbm(
+  text: string,
+  targetLanguageCode: string // ISO 639-1, e.g. "es", "hi", "fr"
+): Promise<string | null> {
+  const config = getConfig();
+  if (!config.apiKey || !config.projectId) return null;
+  const trimmed = text.trim();
+  if (!trimmed || targetLanguageCode === "en") return null;
+
+  const ISO_TO_LANGUAGE: Record<string, string> = {
+    es: "Spanish", fr: "French", pt: "Portuguese", de: "German",
+    it: "Italian", nl: "Dutch", pl: "Polish", ru: "Russian",
+    uk: "Ukrainian", ar: "Arabic", fa: "Farsi", tr: "Turkish",
+    hi: "Hindi", bn: "Bengali", ur: "Urdu", pa: "Punjabi",
+    gu: "Gujarati", ta: "Tamil", te: "Telugu", ml: "Malayalam",
+    kn: "Kannada", mr: "Marathi", ne: "Nepali", si: "Sinhala",
+    th: "Thai", vi: "Vietnamese", id: "Indonesian", ms: "Malay",
+    tl: "Filipino", zh: "Chinese", ja: "Japanese", ko: "Korean",
+    sw: "Swahili", am: "Amharic", ha: "Hausa", yo: "Yoruba",
+    ig: "Igbo", so: "Somali", om: "Oromo",
+  };
+  const langName = ISO_TO_LANGUAGE[targetLanguageCode] ?? targetLanguageCode;
+
+  try {
+    const token = await getIamToken(config.apiKey);
+    const url = config.serviceUrl + "/ml/v1/text/generation?version=2023-05-29";
+    const prompt =
+      `Translate the following English text into ${langName}.\n` +
+      `Return ONLY the translated text, no explanations, no JSON, no quotes.\n\n` +
+      `English: ${trimmed}\n\n${langName}:`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), IBM_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          model_id: config.modelId,
+          input: prompt,
+          parameters: { max_new_tokens: 200, temperature: 0.0 },
+          project_id: config.projectId,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as { results?: Array<{ generated_text?: string }> };
+      const result = data.results?.[0]?.generated_text?.trim() ?? "";
+      return result || null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Translate text to English via IBM watsonx.ai.
  * Returns null fields when credentials are missing or text is empty.
  * Throws on network/API errors so callers (transcriptTranslation.ts) can fall back.

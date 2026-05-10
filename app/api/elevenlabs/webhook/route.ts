@@ -47,18 +47,58 @@ Rules:
 - Reply with ONLY the spoken sentence. No JSON, no labels, no explanation.`.trim();
 
 const generateVoiceReplyViaFeatherless = async (
-  history: string[],
-  latestText: string
+  conversationMessages: Array<{ role: "user" | "assistant"; content: string }>,
+  latestText: string,
+  callerLanguage?: string | null,
+  triageState?: { incident_type?: string | null; location?: string | null; collected_fields?: Record<string, string> | null; missing_fields?: string[] | null } | null
 ): Promise<string> => {
   const key = process.env.FEATHERLESS_API_KEY?.trim();
   const model = process.env.FEATHERLESS_MODEL?.trim() ?? "google/gemma-3-4b-it";
   const base = process.env.FEATHERLESS_BASE_URL?.trim() ?? "https://api.featherless.ai/v1";
   if (!key) throw new Error("FEATHERLESS_API_KEY not set");
 
-  const historyLines = history.length > 0
-    ? `Previous caller messages:\n${history.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n`
-    : "";
-  const userMessage = `${historyLines}Latest caller message: "${latestText}"\n\nWhat do you say to the caller?`;
+  // Build contextual additions to system prompt
+  const additions: string[] = [];
+
+  // Inject known incident state so Featherless never re-asks for it
+  if (triageState) {
+    const known: string[] = [];
+    if (triageState.incident_type) known.push(`incident type: ${triageState.incident_type}`);
+    if (triageState.location) known.push(`location: ${triageState.location}`);
+    if (triageState.collected_fields) {
+      for (const [k, v] of Object.entries(triageState.collected_fields)) {
+        known.push(`${k}: ${v}`);
+      }
+    }
+    if (known.length > 0) {
+      additions.push(`Already confirmed from caller: ${known.join(", ")}. Do NOT ask for these again.`);
+    }
+    if (triageState.missing_fields && triageState.missing_fields.length > 0) {
+      additions.push(`Still need from caller: ${triageState.missing_fields.join(", ")}.`);
+    }
+  }
+
+  // Featherless always replies in English — IBM translates the response
+  // into the caller's language afterward (see translateEnglishToLanguageWithIbm below).
+  // Just note the language for context so the model understands the caller.
+  if (callerLanguage && callerLanguage !== "en") {
+    additions.push(
+      `Note: the caller is speaking a non-English language (${callerLanguage}). ` +
+      `Their message has been translated to English above. Reply in English — translation to their language is handled separately.`
+    );
+  }
+
+  const systemPrompt = additions.length > 0
+    ? `${VOICE_SYSTEM_PROMPT}\n- ${additions.join("\n- ")}`
+    : VOICE_SYSTEM_PROMPT;
+
+  // Build the full conversation turn list for Featherless (user + assistant history),
+  // then append the latest caller message as the final user turn.
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: systemPrompt },
+    ...conversationMessages,
+    { role: "user", content: latestText },
+  ];
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -68,10 +108,7 @@ const generateVoiceReplyViaFeatherless = async (
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: VOICE_SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
+        messages,
         max_tokens: 80,
         temperature: 0.1,
       }),
@@ -106,8 +143,10 @@ import {
   registerVoiceSession,
   updateVoiceSessionElevenLabsId,
   patchVoiceSessionIds,
+  patchVoiceTriageState,
 } from "@/lib/voice/voiceSessionStore";
 import { enrichTranscriptWithIbmTranslation } from "@/lib/voice/transcriptTranslation";
+import { translateEnglishToLanguageWithIbm } from "@/lib/voice/ibmLanguageTranslator";
 
 // ---------------------------------------------------------------------------
 // Helper: build LLM response — streaming SSE or plain JSON
@@ -225,6 +264,9 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     const wantsStream = (parsedBody as Record<string, unknown>).stream === true;
     console.info(`[elevenlabs/webhook] stream=${wantsStream}`);
 
+
+
+
     // Resolve incident/session IDs (from extra body, or store lookup)
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
@@ -248,6 +290,19 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       }
     }
 
+    console.info(
+      `[elevenlabs/webhook] turn IDs from payload → incidentId=${incidentId ?? "null"} sessionId=${callSessionId ?? "null"} convId=${conversationId ?? "null"} sid=${twilioCallSid ?? "null"}`
+    );
+
+    // isNewCall = true when this is a brand-new call and we generated temp local UUIDs.
+    let isNewCall = false;
+    // Resolves with real Supabase IDs once repositoryCallStart completes.
+    // The turn 1 save awaits this so it never races against the DB write.
+    let resolveRealIds: (val: { incident_id: string; call_session_id: string } | null) => void = () => {};
+    const realIdsReady = new Promise<{ incident_id: string; call_session_id: string } | null>(
+      (resolve) => { resolveRealIds = resolve; }
+    );
+
     if (!resolvedIncidentId || !resolvedCallSessionId) {
       // ElevenLabs Phone Numbers integration does NOT send a conversation_id in the
       // Custom LLM webhook payload. We use a message-fingerprint to track the session
@@ -267,6 +322,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         // First turn of a new call — generate IDs locally (instant, no DB wait).
         // Register in memory immediately so subsequent turns can find the session.
         // Supabase write happens async so it never blocks the voice response.
+        isNewCall = true;
         resolvedIncidentId = crypto.randomUUID();
         resolvedCallSessionId = crypto.randomUUID();
 
@@ -306,13 +362,29 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
           }
           console.info(
-            `[elevenlabs/webhook] Session patched: local=${localIncidentId} → supabase=${started.incident_id}`
+            `[elevenlabs/webhook] ✅ Session patched: local=${localIncidentId} → real=${started.incident_id} (Supabase: ${started.incident_id !== localIncidentId ? "YES" : "in-memory"})`
           );
-        }).catch((e) =>
-          console.error("[elevenlabs/webhook] async call/start error:", e)
-        );
+          // Signal that real IDs are ready. The turn 1 save (below) is waiting on this.
+          resolveRealIds({ incident_id: started.incident_id, call_session_id: started.call_session_id });
+        }).catch((e) => {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          console.error(
+            `[elevenlabs/webhook] ❌ repositoryCallStart FAILED — all turns will NOT_FOUND. Error: ${errMsg}`
+          );
+          console.error("[elevenlabs/webhook] → If error mentions 'relation does not exist', run your Supabase migration SQL.");
+          console.error("[elevenlabs/webhook] → If error mentions 'JWT expired' or 'Invalid API key', check SUPABASE_SERVICE_ROLE_KEY in .env.local.");
+          resolveRealIds(null);
+        });
       }
     }
+
+    // Read cached triage state from the previous turn (populated async after
+    // repositoryCallTurn resolves). This tells Featherless what has already
+    // been gathered so it never asks for the same thing twice.
+    const sessionKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
+    const cachedTriageState = sessionKey
+      ? (getSessionByElevenLabsId(sessionKey) ?? getSessionByTwilioSid(sessionKey ?? ""))?.triage_state
+      : undefined;
 
     // Build context from message history — only count non-empty user turns.
     // ElevenLabs sends empty user messages on silence/inactivity timeouts; counting
@@ -349,35 +421,68 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     // ---------------------------------------------------------------------------
 
     // IBM Multilingual Incident Layer — translate final caller text to English before AI reasoning
+    // Log the raw transcript so we can see exactly what ElevenLabs STT produced
+    console.info(
+      `[elevenlabs/webhook] raw transcript (${latestUserText.length} chars): "${latestUserText.slice(0, 120)}"`
+    );
     const translated = await enrichTranscriptWithIbmTranslation({
       text: latestUserText,
       isFinal: true,
     });
     const reasoningText = translated.translated_text ?? latestUserText;
-    if (translated.language && translated.language !== "en") {
-      console.info(
-        `[elevenlabs/webhook] IBM translation: lang=${translated.language} provider=${translated.translation_provider}`
-      );
-    }
+    console.info(
+      `[elevenlabs/webhook] IBM result: lang=${translated.language ?? "null"} provider=${translated.translation_provider} translated="${(translated.translated_text ?? "").slice(0, 80)}"`
+    );
 
-    /** Context-aware fallback used when Gemma times out or errors. */
-    const voiceFallback = (ctx: string, turn: number): string => {
+    /** Context-aware fallback used when Gemma times out or errors.
+     *  Always matches against the English-translated context but uses
+     *  hardcoded bilingual phrases for common languages so the caller
+     *  still hears their language if Featherless fails.
+     */
+    const voiceFallback = (ctx: string, turn: number, lang: string | null): string => {
       const c = ctx.toLowerCase();
-      const hasFire     = /fire|smoke|gas leak|gas|flood/.test(c);
-      const hasIntruder = /break.?in|intruder|shooting|stabbing|burglar/.test(c);
-      const hasMedical  = /medical|collapse|unconscious|trapped|accident|injur|hurt|chest pain|not breathing/.test(c);
-      const hasEmergency = hasFire || hasIntruder || hasMedical || /emergency/.test(c);
+      const hasFire     = /fire|smoke|gas leak|gas|flood|fuego|incendio|feu|feuer/.test(c);
+      const hasIntruder = /break.?in|intruder|shooting|stabbing|burglar|intruso|ladr/.test(c);
+      const hasMedical  = /medical|collapse|unconscious|trapped|accident|injur|hurt|chest pain|not breathing|médico|médica|blessé/.test(c);
+      const hasEmergency = hasFire || hasIntruder || hasMedical || /emergency|emergencia|urgence/.test(c);
+
+      // Bilingual hardcoded phrases for the most common caller languages
+      type Phrases = { location: string; help: string; fire: string; intruder: string; medical: string };
+      const PHRASES: Record<string, Phrases> = {
+        es: {
+          location: "¿Puede describirme qué pasó y dónde está? (Can you describe what happened and where you are?)",
+          help:     "Los servicios de emergencia han sido notificados. Quédese en línea. (Emergency services notified. Stay on the line.)",
+          fire:     "Evacúe si es seguro hacerlo. La ayuda está en camino. (Evacuate if safe. Help is on the way.)",
+          intruder: "Escóndase y no confronte a nadie. La ayuda llega. (Hide and do not confront anyone. Help is coming.)",
+          medical:  "No mueva a la persona. La ayuda está en camino. (Do not move the person. Help is on the way.)",
+        },
+        fr: {
+          location: "Pouvez-vous décrire ce qui s'est passé et où vous êtes ? (Can you describe what happened and where you are?)",
+          help:     "Les secours ont été alertés. Restez en ligne. (Emergency services notified. Stay on the line.)",
+          fire:     "Évacuez si c'est sans danger. Les secours arrivent. (Evacuate if safe. Help is on the way.)",
+          intruder: "Cachez-vous et n'affrontez personne. Les secours arrivent. (Hide and do not confront anyone. Help is coming.)",
+          medical:  "Ne bougez pas la personne. Les secours arrivent. (Do not move the person. Help is on the way.)",
+        },
+        pt: {
+          location: "Pode descrever o que aconteceu e onde você está? (Can you describe what happened and where you are?)",
+          help:     "Os serviços de emergência foram notificados. Fique na linha. (Emergency services notified. Stay on the line.)",
+          fire:     "Evacue se for seguro. A ajuda está a caminho. (Evacuate if safe. Help is on the way.)",
+          intruder: "Esconda-se e não confronte ninguém. A ajuda está a caminho. (Hide. Help is coming.)",
+          medical:  "Não mova a pessoa. A ajuda está a caminho. (Do not move the person. Help is on the way.)",
+        },
+      };
+      const p = lang ? PHRASES[lang] : null;
 
       if (!hasEmergency) {
-        return turn === 1
+        return p?.location ?? (turn === 1
           ? "Can you describe what happened and where you are?"
-          : "Got it. Can you give me your exact location?";
+          : "Got it. Can you give me your exact location?");
       }
-      if (turn === 1) return "What is your exact location?";
-      if (hasFire)     return "Evacuate immediately if it is safe to do so. Emergency services have been notified and are on their way.";
-      if (hasIntruder) return "Find a safe place and stay hidden. Do not confront anyone. Help is on the way.";
-      if (hasMedical)  return "Stay calm and do not move the person. Keep them still. Help is on the way.";
-      return "Emergency services have been notified. Stay on the line.";
+      if (turn === 1) return p?.location ?? "What is your exact location?";
+      if (hasFire)     return p?.fire     ?? "Evacuate immediately if it is safe to do so. Emergency services have been notified and are on their way.";
+      if (hasIntruder) return p?.intruder ?? "Find a safe place and stay hidden. Do not confront anyone. Help is on the way.";
+      if (hasMedical)  return p?.medical  ?? "Stay calm and do not move the person. Keep them still. Help is on the way.";
+      return p?.help ?? "Emergency services have been notified. Stay on the line.";
     };
 
     let sayToCaller: string;
@@ -385,12 +490,21 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     let shouldEnd = false;
 
     try {
-      const transcriptHistory = substantiveUserMsgs.slice(0, -1);
+      // Build the full conversation history (user + assistant) from the ElevenLabs message list.
+      // Exclude the very last message (the current caller turn — passed separately as latestText).
+      // This gives Featherless full context of what the agent already said so it never repeats.
+      const conversationMessages = event.messages
+        .filter((m) => (m.role === "user" || m.role === "assistant") && (m.content ?? "").trim())
+        .slice(0, -1)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content ?? "" }));
 
-      // Direct lightweight Featherless call — minimal prompt, no tool catalog, no schema validation.
-      // No mock fallback. If Featherless fails or times out, voiceFallback fires below.
+      console.info(
+        `[elevenlabs/webhook] Featherless context: ${conversationMessages.length} prior turns, lang=${translated.language ?? "en"}`
+      );
+
+      // Direct Featherless call with full conversation context and cached incident state.
       sayToCaller = await Promise.race([
-        generateVoiceReplyViaFeatherless(transcriptHistory, reasoningText),
+        generateVoiceReplyViaFeatherless(conversationMessages, reasoningText, translated.language, cachedTriageState),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("voice_timeout")), 8000)
         ),
@@ -399,25 +513,104 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       console.info(`[elevenlabs/webhook] Featherless voice reply (${sayToCaller.length} chars)`);
     } catch (e) {
       const reason = e instanceof Error ? e.message : "unknown";
-      console.warn(`[elevenlabs/webhook] Featherless ${reason === "voice_timeout" ? "timed out (>8s)" : `error: ${reason}`} — using context fallback`);
-      sayToCaller = voiceFallback(fullContext, turnNumber);
+      console.warn(`[elevenlabs/webhook] Featherless ${reason === "voice_timeout" ? "timed out (>8s)" : "error: " + reason} -- using context fallback`);
+      sayToCaller = voiceFallback(fullContext, turnNumber, translated.language ?? null);
     }
 
-    // Persist transcript + incident update async — don't block the voice response
-    void repositoryCallTurn({
-      incident_id: resolvedIncidentId,
-      call_session_id: resolvedCallSessionId,
-      speaker: "caller",
-      text: latestUserText,
-      is_final: true,
-      source: VOICE_SOURCE_LABEL,
-      language: translated.language,
-      translated_text: translated.translated_text,
-    }).catch((e) =>
-      console.error("[elevenlabs/webhook] async call/turn error:", e)
-    );
+    // ---------------------------------------------------------------------------
+    // IBM response translation — if caller is non-English, translate the English
+    // reply back into their language. IBM already ran (caller → English) so the
+    // IAM token is cached; this second call is fast (~300-600ms).
+    // On any failure, fall back to the English response so the call never blocks.
+    // ---------------------------------------------------------------------------
+    if (
+      translated.language &&
+      translated.language !== "en" &&
+      process.env.IBM_TRANSLATION_ENABLED === "true"
+    ) {
+      try {
+        const localised = await translateEnglishToLanguageWithIbm(sayToCaller, translated.language);
+        if (localised) {
+          // Bilingual: caller hears their language, dispatcher reads English in parens
+          sayToCaller = `${localised} (${sayToCaller})`;
+          console.info(`[elevenlabs/webhook] IBM response translated to ${translated.language}: ${sayToCaller.length} chars`);
+        }
+      } catch {
+        // Non-blocking — English fallback stays
+        console.warn(`[elevenlabs/webhook] IBM response translation failed — using English`);
+      }
+    }
 
-    // Decide next voice action from fast AI output
+    // Persist transcript + incident update async -- cache triage state for next turn.
+    const turnSessionKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
+    if (isNewCall) {
+      // Turn 1: capture transcript data now (closure), then wait for real Supabase
+      // IDs via realIdsReady. This handles both orderings:
+      //   - repositoryCallStart resolves before Featherless → waits for this code
+      //   - Featherless resolves before repositoryCallStart → waits for real IDs
+      const t1Text = latestUserText;
+      const t1Language = translated.language;
+      const t1TranslatedText = translated.translated_text;
+      const t1TriageKey = conversationId ?? twilioCallSid ?? resolvedIncidentId;
+      void realIdsReady.then(async (realIds) => {
+        if (!realIds) return;
+        try {
+          const result = await repositoryCallTurn({
+            incident_id: realIds.incident_id,
+            call_session_id: realIds.call_session_id,
+            speaker: "caller",
+            text: t1Text,
+            is_final: true,
+            source: VOICE_SOURCE_LABEL,
+            language: t1Language,
+            translated_text: t1TranslatedText,
+          });
+          const inc = result.incident;
+          patchVoiceTriageState(t1TriageKey, {
+            incident_type: inc.incident_type ?? null,
+            location: inc.location ?? null,
+            collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
+            missing_fields: inc.missing_fields ?? null,
+          });
+          console.info(
+            `[elevenlabs/webhook] Turn 1 saved: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"}`
+          );
+        } catch (e) {
+          console.error("[elevenlabs/webhook] Turn 1 save error:", e);
+        }
+      });
+    } else {
+      console.info(
+        `[elevenlabs/webhook] Turn 2+: saving with incident=${resolvedIncidentId} session=${resolvedCallSessionId}`
+      );
+      void repositoryCallTurn({
+        incident_id: resolvedIncidentId,
+        call_session_id: resolvedCallSessionId,
+        speaker: "caller",
+        text: latestUserText,
+        is_final: true,
+        source: VOICE_SOURCE_LABEL,
+        language: translated.language,
+        translated_text: translated.translated_text,
+      }).then((result) => {
+        const inc = result.incident;
+        if (turnSessionKey) {
+          patchVoiceTriageState(turnSessionKey, {
+            incident_type: inc.incident_type ?? null,
+            location: inc.location ?? null,
+            collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
+            missing_fields: inc.missing_fields ?? null,
+          });
+          console.info(
+            `[elevenlabs/webhook] Triage state cached: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"} missing=${(inc.missing_fields ?? []).join(",") || "none"}`
+          );
+        }
+      }).catch((e) =>
+        console.error("[elevenlabs/webhook] async call/turn error:", e)
+      );
+    }
+
+    // Decide next voice action
     const action = shouldTransfer
       ? { type: "transfer" as const, reason: "operator_required" }
       : shouldEnd
@@ -425,7 +618,6 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       : { type: "say" as const, text: sayToCaller };
 
     if (action.type === "transfer") {
-      // Trigger emergency transfer asynchronously (don't block the ElevenLabs response)
       if (resolvedTwilioCallSid) {
         void triggerTransfer({
           twilio_call_sid: resolvedTwilioCallSid,
@@ -434,17 +626,12 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           baseUrl: getBaseUrl(request),
         });
       } else {
-        console.warn(
-          "[elevenlabs/webhook] Transfer needed but no twilio_call_sid available."
-        );
+        console.warn("[elevenlabs/webhook] Transfer needed but no twilio_call_sid available.");
       }
-
-      // Tell the caller they are being transferred before the transfer completes
       const bridgeText =
         sayToCaller !== SAFE_FALLBACK_PHRASE
           ? sayToCaller
           : "I am connecting you to an operator now. Please stay on the line.";
-
       return buildLlmResponse(bridgeText, wantsStream);
     }
 
@@ -457,27 +644,22 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       );
     }
 
-    // Default: say the backend's phrase
     return buildLlmResponse(action.text, wantsStream);
   }
 
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 2. Real-time transcript event
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   if (event.kind === "transcript") {
     const { conversationId, text, isFinal, role } = event;
 
     if (!isFinal || role !== "user" || !text.trim()) {
-      // Partial transcripts or agent turns — store if needed but don't run AI
-      return NextResponse.json({ ok: true, note: "partial or agent turn — skipped" });
+      return NextResponse.json({ ok: true, note: "partial or agent turn -- skipped" });
     }
 
-    // Resolve session
     const entry = getSessionByElevenLabsId(conversationId);
     if (!entry) {
-      console.warn(
-        `[elevenlabs/webhook] Transcript event: no session for conv_id=${conversationId}`
-      );
+      console.warn(`[elevenlabs/webhook] Transcript event: no session for conv_id=${conversationId}`);
       return NextResponse.json({ ok: true, note: "session not found" });
     }
 
@@ -497,17 +679,15 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     return NextResponse.json({ ok: true });
   }
 
-  // -------------------------------------------------------------------------
-  // 3. Post-call webhook — conversation ended
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // 3. Post-call webhook -- conversation ended
+  // ---------------------------------------------------------------------------
   if (event.kind === "post_call") {
     const { conversationId } = event;
     const entry = getSessionByElevenLabsId(conversationId);
 
     if (!entry) {
-      console.warn(
-        `[elevenlabs/webhook] Post-call: no session for conv_id=${conversationId}`
-      );
+      console.warn(`[elevenlabs/webhook] Post-call: no session for conv_id=${conversationId}`);
       return NextResponse.json({ ok: true, note: "session not found" });
     }
 
@@ -517,9 +697,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         call_session_id: entry.call_session_id,
         reason: "completed",
       });
-      console.info(
-        `[elevenlabs/webhook] Post-call: closed session incident=${entry.incident_id}`
-      );
+      console.info(`[elevenlabs/webhook] Post-call: closed session incident=${entry.incident_id}`);
     } catch (e) {
       console.error("[elevenlabs/webhook] post-call call/end error:", e);
     }
@@ -527,6 +705,6 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     return NextResponse.json({ ok: true });
   }
 
-  // Unknown event type — log and return 200 so ElevenLabs doesn't retry
+  // Unknown event type -- log and return 200 so ElevenLabs does not retry
   return NextResponse.json({ ok: true, note: "unknown event" });
 };
