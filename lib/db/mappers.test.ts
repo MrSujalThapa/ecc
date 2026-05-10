@@ -94,6 +94,30 @@ describe("mapCallSessionRow", () => {
     expect(s.turn_count).toBe(3);
     expect(s.status).toBe("active");
     expect(s.operator_transfer_status).toBe("not_requested");
+    expect(s.caller_phone).toBeNull();
+  });
+
+  it("maps caller_phone when present", () => {
+    const s = mapCallSessionRow({
+      id: "s1",
+      incident_id: "i1",
+      twilio_call_sid: null,
+      elevenlabs_conversation_id: null,
+      caller_phone: "+14155551234",
+      status: "active",
+      ai_active: true,
+      turn_count: 0,
+      recent_transcript: [],
+      required_fields: [],
+      missing_fields: [],
+      next_question: null,
+      last_model_confidence: null,
+      should_escalate: false,
+      operator_transfer_status: "not_requested",
+      created_at: "t",
+      updated_at: "t",
+    });
+    expect(s.caller_phone).toBe("+14155551234");
   });
 });
 

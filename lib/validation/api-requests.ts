@@ -5,6 +5,7 @@ export const callStartRequestSchema = z.object({
   mode: z.enum(APP_MODES).optional(),
   twilio_call_sid: z.string().nullable().optional(),
   elevenlabs_conversation_id: z.string().nullable().optional(),
+  caller_phone: z.string().nullable().optional(),
 });
 
 export const callTurnRequestSchema = z
@@ -89,6 +90,12 @@ export const operatorSendSmsRequestSchema = z.object({
   incident_id: z.string().min(1),
   operator_id: z.string().min(1),
   message: z.string().min(1),
+  to: z
+    .string()
+    .regex(/^\+\d{10,15}$/, {
+      message: "Must be E.164 (+ followed by 10-15 digits)",
+    })
+    .nullish(),
 });
 
 export const simulateBatchRequestSchema = z.object({

@@ -29,6 +29,27 @@
 
 import { NextResponse } from "next/server";
 import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
+import { resolveCallerPhoneJsonOrTwilio } from "@/lib/voice/callerPhoneResolution";
+import {
+  parseElevenLabsEvent,
+  verifyElevenLabsSignature,
+} from "@/lib/voice/elevenlabsWebhookParser";
+import { buildElevenLabsLlmResponse } from "@/lib/voice/callRouting";
+import {
+  elevenLabsConfig,
+  SAFE_FALLBACK_PHRASE,
+  VOICE_SOURCE_LABEL,
+} from "@/lib/voice/voiceConfig";
+import {
+  getSessionByElevenLabsId,
+  getSessionByTwilioSid,
+  registerVoiceSession,
+  updateVoiceSessionElevenLabsId,
+  patchVoiceSessionIds,
+  patchVoiceTriageState,
+} from "@/lib/voice/voiceSessionStore";
+import { enrichTranscriptWithIbmTranslation } from "@/lib/voice/transcriptTranslation";
+import { translateEnglishToLanguageWithIbm } from "@/lib/voice/ibmLanguageTranslator";
 
 // ---------------------------------------------------------------------------
 // Featherless voice reply — OpenAI-compatible, used when FEATHERLESS_API_KEY is set
@@ -127,26 +148,6 @@ const generateVoiceReplyViaFeatherless = async (
     clearTimeout(timer);
   }
 };
-import {
-  parseElevenLabsEvent,
-  verifyElevenLabsSignature,
-} from "@/lib/voice/elevenlabsWebhookParser";
-import { buildElevenLabsLlmResponse } from "@/lib/voice/callRouting";
-import {
-  elevenLabsConfig,
-  SAFE_FALLBACK_PHRASE,
-  VOICE_SOURCE_LABEL,
-} from "@/lib/voice/voiceConfig";
-import {
-  getSessionByElevenLabsId,
-  getSessionByTwilioSid,
-  registerVoiceSession,
-  updateVoiceSessionElevenLabsId,
-  patchVoiceSessionIds,
-  patchVoiceTriageState,
-} from "@/lib/voice/voiceSessionStore";
-import { enrichTranscriptWithIbmTranslation } from "@/lib/voice/transcriptTranslation";
-import { translateEnglishToLanguageWithIbm } from "@/lib/voice/ibmLanguageTranslator";
 
 // ---------------------------------------------------------------------------
 // Helper: build LLM response — streaming SSE or plain JSON
@@ -245,6 +246,10 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  console.info(
+    `[elevenlabs/webhook] POST content-type=${request.headers.get("content-type") ?? "(none)"}`
+  );
+
   const event = parseElevenLabsEvent(parsedBody);
 
   // Log top-level keys of every incoming event to help debug session resolution
@@ -263,6 +268,10 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     const { latestUserText, incidentId, callSessionId, conversationId, twilioCallSid } = event;
     const wantsStream = (parsedBody as Record<string, unknown>).stream === true;
     console.info(`[elevenlabs/webhook] stream=${wantsStream}`);
+    console.info(
+      `[elevenlabs/webhook] llm_turn ids incidentId=${incidentId ?? "null"} callSessionId=${callSessionId ?? "null"} ` +
+        `conversationId=${conversationId ?? "null"} twilioCallSid=${twilioCallSid ?? "null"}`
+    );
 
 
 
@@ -270,7 +279,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     // Resolve incident/session IDs (from extra body, or store lookup)
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
-    let resolvedTwilioCallSid = twilioCallSid;
+    const resolvedTwilioCallSid = twilioCallSid;
 
     // Fallback: look up by conversation_id
     if ((!resolvedIncidentId || !resolvedCallSessionId) && conversationId) {
@@ -351,30 +360,50 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         // real Supabase IDs so turn 2+ repositoryCallTurn writes succeed (M1/M4 integration).
         const autoConvKey = conversationId ?? fingerprint;
         const localIncidentId = resolvedIncidentId;
-        void repositoryCallStart({
-          mode: "normal",
-          twilio_call_sid: null,
-          elevenlabs_conversation_id: autoConvKey,
-        }).then((started) => {
-          // Replace temp local UUIDs with real Supabase IDs across all session keys
-          patchVoiceSessionIds(fingerprint, started.incident_id, started.call_session_id);
-          if (conversationId && conversationId !== fingerprint) {
-            patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
-          }
+        const sidForDb = twilioCallSid?.trim() || null;
+        void (async () => {
+          const ct = request.headers.get("content-type") ?? "(none)";
+          const callerPhoneResolved = await resolveCallerPhoneJsonOrTwilio({
+            rawJson: parsedBody,
+            twilioCallSid: sidForDb,
+          });
           console.info(
-            `[elevenlabs/webhook] ✅ Session patched: local=${localIncidentId} → real=${started.incident_id} (Supabase: ${started.incident_id !== localIncidentId ? "YES" : "in-memory"})`
+            `[elevenlabs/webhook] repositoryCallStart(new-call) content-type=${ct} ` +
+              `CallSid=${sidForDb ?? "null"} elevenlabs_conversation_id=${autoConvKey} ` +
+              `caller_phone=${callerPhoneResolved ?? "null"}`
           );
-          // Signal that real IDs are ready. The turn 1 save (below) is waiting on this.
-          resolveRealIds({ incident_id: started.incident_id, call_session_id: started.call_session_id });
-        }).catch((e) => {
-          const errMsg = e instanceof Error ? e.message : String(e);
-          console.error(
-            `[elevenlabs/webhook] ❌ repositoryCallStart FAILED — all turns will NOT_FOUND. Error: ${errMsg}`
-          );
-          console.error("[elevenlabs/webhook] → If error mentions 'relation does not exist', run your Supabase migration SQL.");
-          console.error("[elevenlabs/webhook] → If error mentions 'JWT expired' or 'Invalid API key', check SUPABASE_SERVICE_ROLE_KEY in .env.local.");
-          resolveRealIds(null);
-        });
+          try {
+            const started = await repositoryCallStart({
+              mode: "normal",
+              twilio_call_sid: sidForDb,
+              elevenlabs_conversation_id: autoConvKey,
+              caller_phone: callerPhoneResolved,
+            });
+            patchVoiceSessionIds(fingerprint, started.incident_id, started.call_session_id);
+            if (conversationId && conversationId !== fingerprint) {
+              patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
+            }
+            console.info(
+              `[elevenlabs/webhook] ✅ Session patched: local=${localIncidentId} → real=${started.incident_id} (Supabase: ${started.incident_id !== localIncidentId ? "YES" : "in-memory"})`
+            );
+            resolveRealIds({
+              incident_id: started.incident_id,
+              call_session_id: started.call_session_id,
+            });
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : String(e);
+            console.error(
+              `[elevenlabs/webhook] ❌ repositoryCallStart FAILED — all turns will NOT_FOUND. Error: ${errMsg}`
+            );
+            console.error(
+              "[elevenlabs/webhook] → If error mentions 'relation does not exist', run your Supabase migration SQL."
+            );
+            console.error(
+              "[elevenlabs/webhook] → If error mentions 'JWT expired' or 'Invalid API key', check SUPABASE_SERVICE_ROLE_KEY in .env.local."
+            );
+            resolveRealIds(null);
+          }
+        })();
       }
     }
 
@@ -434,7 +463,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       `[elevenlabs/webhook] IBM result: lang=${translated.language ?? "null"} provider=${translated.translation_provider} translated="${(translated.translated_text ?? "").slice(0, 80)}"`
     );
 
-    /** Context-aware fallback used when Gemma times out or errors.
+    /** Context-aware fallback used when Featherless times out or errors.
      *  Always matches against the English-translated context but uses
      *  hardcoded bilingual phrases for common languages so the caller
      *  still hears their language if Featherless fails.
@@ -486,8 +515,8 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     };
 
     let sayToCaller: string;
-    let shouldTransfer = false;
-    let shouldEnd = false;
+    const shouldTransfer = false;
+    const shouldEnd = false;
 
     try {
       // Build the full conversation history (user + assistant) from the ElevenLabs message list.

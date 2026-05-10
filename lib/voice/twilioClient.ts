@@ -152,6 +152,30 @@ const twilioRequest = async <T = unknown>(
 // ---------------------------------------------------------------------------
 
 /**
+ * Fetches an in-progress or completed call resource and returns the caller's `from`
+ * number (E.164 when PSTN). Used when webhooks include CallSid but omit From.
+ */
+export const fetchTwilioCallCallerFrom = async (
+  callSid: string
+): Promise<string | null> => {
+  const sid = callSid.trim();
+  if (!sid) return null;
+
+  const path = `/2010-04-01/Accounts/${twilioConfig.accountSid}/Calls/${encodeURIComponent(sid)}.json`;
+  const result = await twilioRequest<{ from?: string }>(path, "GET");
+  if (!result.ok) {
+    console.warn(
+      `[twilioClient] fetchTwilioCallCallerFrom failed sid=${sid}: ${result.error}`
+    );
+    return null;
+  }
+  const raw = result.data.from;
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+};
+
+/**
  * Redirect an in-flight Twilio call to new TwiML.
  * Used to trigger the emergency transfer while the call is live.
  */
@@ -198,15 +222,6 @@ export const sendTwilioSms = async (
 // ---------------------------------------------------------------------------
 
 /**
- * Creates an ElevenLabs conversation via API and returns a signed URL
- * and the conversation_id.
- *
- * This allows passing dynamic variables (e.g. incident_id, call_session_id)
- * into the agent context so the custom LLM webhook can identify the session.
- *
- * Returns null if ElevenLabs is not configured.
- */
-/**
  * For Twilio phone calls, we no longer pre-create a conversation via the signed
  * URL endpoint — that endpoint is for browser widget sessions and doesn't give
  * ElevenLabs enough context to properly track phone calls in conversation history.
@@ -228,6 +243,7 @@ export const createElevenLabsConversation = async (_opts: {
   conversation_id: string;
   signed_url: string;
 } | null> => {
+  void _opts;
   // Always use the Twilio WebSocket + Parameter approach for phone calls.
   // See buildTwimlConnectElevenLabs for details.
   return null;

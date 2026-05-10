@@ -36,6 +36,7 @@ const baseSession: CallSession = {
   incident_id: "inc-1",
   twilio_call_sid: null,
   elevenlabs_conversation_id: null,
+  caller_phone: null,
   status: "active",
   ai_active: true,
   turn_count: 0,

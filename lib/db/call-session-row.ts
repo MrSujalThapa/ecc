@@ -4,6 +4,7 @@ export const callSessionToDb = (s: CallSession): Record<string, unknown> => ({
   updated_at: s.updated_at,
   twilio_call_sid: s.twilio_call_sid,
   elevenlabs_conversation_id: s.elevenlabs_conversation_id,
+  caller_phone: s.caller_phone,
   status: s.status,
   ai_active: s.ai_active,
   turn_count: s.turn_count,
@@ -23,12 +24,14 @@ export const newCallSessionInsertRow = (
   opts: {
     twilio_call_sid?: string | null;
     elevenlabs_conversation_id?: string | null;
+    caller_phone?: string | null;
   }
 ): Record<string, unknown> => ({
   id,
   incident_id: incidentId,
   twilio_call_sid: opts.twilio_call_sid ?? null,
   elevenlabs_conversation_id: opts.elevenlabs_conversation_id ?? null,
+  caller_phone: opts.caller_phone ?? null,
   status: "active",
   ai_active: true,
   turn_count: 0,

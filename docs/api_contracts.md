@@ -163,6 +163,8 @@ export type CallSession = {
 
   twilio_call_sid: string | null;
   elevenlabs_conversation_id: string | null;
+  /** Twilio inbound From (E.164 when PSTN); used for operator SMS when `to` is omitted. */
+  caller_phone: string | null;
 
   status: "active" | "closed";
   ai_active: boolean;
@@ -347,6 +349,7 @@ export type StartCallRequest = {
   mode: SystemMode;
   twilio_call_sid?: string | null;
   elevenlabs_conversation_id?: string | null;
+  caller_phone?: string | null;
 };
 ```
 
@@ -356,7 +359,8 @@ export type StartCallRequest = {
 {
   "mode": "normal",
   "twilio_call_sid": "CAxxxx",
-  "elevenlabs_conversation_id": "ELxxxx"
+  "elevenlabs_conversation_id": "ELxxxx",
+  "caller_phone": "+14155552671"
 }
 ```
 
@@ -575,6 +579,8 @@ export type OperatorSendSmsRequest = {
   incident_id: UUID;
   operator_id: string;
   message: string;
+  /** Optional E.164 override (`/^\\+\\d{10,15}$/`). If omitted, backend uses latest session `caller_phone`. */
+  to?: string | null;
 };
 ```
 
@@ -585,6 +591,7 @@ export type OperatorSendSmsResponse = {
   incident_id: UUID;
   sent: boolean;
   provider_message_id?: string;
+  error?: string;
 };
 ```
 

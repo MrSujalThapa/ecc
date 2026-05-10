@@ -84,8 +84,15 @@ export const parseElevenLabsEvent = (raw: unknown): ParsedElevenLabsEvent => {
       modelField ??
       null;
 
+    const twilioCallSid =
+      (extra.twilio_call_sid as string | undefined) ??
+      (typeof obj.twilio_call_sid === "string" ? obj.twilio_call_sid : undefined) ??
+      (typeof obj.twilioCallSid === "string" ? obj.twilioCallSid : undefined) ??
+      (typeof obj.call_sid === "string" ? obj.call_sid : undefined) ??
+      null;
+
     console.info(
-      `[elevenlabsWebhookParser] llm_turn model=${modelField} conv_id=${conversationId} extra_keys=${Object.keys(extra).join(",") || "none"}`
+      `[elevenlabsWebhookParser] llm_turn model=${modelField} conv_id=${conversationId} twilio_call_sid=${twilioCallSid ?? "null"} extra_keys=${Object.keys(extra).join(",") || "none"}`
     );
 
     return {
@@ -96,7 +103,7 @@ export const parseElevenLabsEvent = (raw: unknown): ParsedElevenLabsEvent => {
       incidentId: (extra.incident_id as string) ?? null,
       callSessionId: (extra.call_session_id as string) ?? null,
       conversationId,
-      twilioCallSid: (extra.twilio_call_sid as string) ?? null,
+      twilioCallSid,
     };
   }
 

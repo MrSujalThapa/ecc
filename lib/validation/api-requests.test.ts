@@ -138,6 +138,27 @@ describe("operatorSendSmsRequestSchema", () => {
       }).success
     ).toBe(true);
   });
+
+  it("accepts optional E.164 to", () => {
+    const r = operatorSendSmsRequestSchema.safeParse({
+      incident_id: "i1",
+      operator_id: "op1",
+      message: "hi",
+      to: "+14155551234",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects invalid to", () => {
+    expect(
+      operatorSendSmsRequestSchema.safeParse({
+        incident_id: "i1",
+        operator_id: "op1",
+        message: "hi",
+        to: "4155551234",
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("simulateBatchRequestSchema", () => {

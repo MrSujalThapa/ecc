@@ -61,6 +61,7 @@ export const createCallSessionForIncident = (
   opts: {
     twilio_call_sid?: string | null;
     elevenlabs_conversation_id?: string | null;
+    caller_phone?: string | null;
   } = {}
 ): CallSession => {
   const id = newId();
@@ -70,6 +71,7 @@ export const createCallSessionForIncident = (
     incident_id: incident.id,
     twilio_call_sid: opts.twilio_call_sid ?? null,
     elevenlabs_conversation_id: opts.elevenlabs_conversation_id ?? null,
+    caller_phone: opts.caller_phone ?? null,
     status: "active",
     ai_active: true,
     turn_count: 0,
@@ -123,6 +125,16 @@ export const listCallSessionsForIncidentSorted = (
     .filter((s) => s.incident_id === incidentId)
     .sort((a, b) =>
       a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0
+    );
+
+/** Newest `created_at` first — aligns with SMS recipient lookup on Supabase. */
+export const listCallSessionsForIncidentByCreatedDesc = (
+  incidentId: string
+): CallSession[] =>
+  [...state.callSessions.values()]
+    .filter((s) => s.incident_id === incidentId)
+    .sort((a, b) =>
+      a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
     );
 
 export const saveIncident = (incident: Incident): void => {

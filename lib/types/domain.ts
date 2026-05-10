@@ -57,6 +57,8 @@ export type CallSession = {
 
   twilio_call_sid: string | null;
   elevenlabs_conversation_id: string | null;
+  /** Twilio inbound `From` (E.164 when PSTN); used for operator SMS fallback. */
+  caller_phone: string | null;
 
   status: CallSessionStatus;
   ai_active: boolean;

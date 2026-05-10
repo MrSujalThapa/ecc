@@ -112,6 +112,10 @@ export const mapCallSessionRow = (row: Record<string, unknown>): CallSession => 
     row.elevenlabs_conversation_id === undefined
       ? null
       : asString(row.elevenlabs_conversation_id),
+  caller_phone:
+    row.caller_phone === null || row.caller_phone === undefined
+      ? null
+      : asString(row.caller_phone),
   status: asString(row.status) as CallSessionStatus,
   ai_active: Boolean(row.ai_active),
   turn_count: Number(row.turn_count ?? 0),
