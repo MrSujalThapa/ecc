@@ -133,9 +133,30 @@ const twilioRequest = async <T = unknown>(
 // ---------------------------------------------------------------------------
 
 /**
- * Redirect an in-flight Twilio call to new TwiML.
- * Used to trigger the emergency transfer while the call is live.
+ * Fetches an in-progress or completed call resource and returns the caller's `from`
+ * number (E.164 when PSTN). Used when webhooks include CallSid but omit From.
  */
+export const fetchTwilioCallCallerFrom = async (
+  callSid: string
+): Promise<string | null> => {
+  const sid = callSid.trim();
+  if (!sid) return null;
+
+  const path = `/2010-04-01/Accounts/${twilioConfig.accountSid}/Calls/${encodeURIComponent(sid)}.json`;
+  const result = await twilioRequest<{ from?: string }>(path, "GET");
+  if (!result.ok) {
+    console.warn(
+      `[twilioClient] fetchTwilioCallCallerFrom failed sid=${sid}: ${result.error}`
+    );
+    return null;
+  }
+  const raw = result.data.from;
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+};
+
+/** Redirect an in-flight Twilio call to new TwiML (operator transfer). */
 export const redirectTwilioCall = async (
   callSid: string,
   twiml: string

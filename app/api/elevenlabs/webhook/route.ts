@@ -29,6 +29,7 @@
 
 import { NextResponse } from "next/server";
 import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
+import { resolveCallerPhoneJsonOrTwilio } from "@/lib/voice/callerPhoneResolution";
 import { generateVoiceReplyViaGemma } from "@/lib/ai/providers/gemmaClient";
 import {
   parseElevenLabsEvent,
@@ -146,6 +147,10 @@ export const POST = async (request: Request): Promise<Response> => {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  console.info(
+    `[elevenlabs/webhook] POST content-type=${request.headers.get("content-type") ?? "(none)"}`
+  );
+
   const event = parseElevenLabsEvent(parsedBody);
 
   // Log top-level keys of every incoming event to help debug session resolution
@@ -164,6 +169,10 @@ export const POST = async (request: Request): Promise<Response> => {
     const { latestUserText, incidentId, callSessionId, conversationId, twilioCallSid } = event;
     const wantsStream = (parsedBody as Record<string, unknown>).stream === true;
     console.info(`[elevenlabs/webhook] stream=${wantsStream}`);
+    console.info(
+      `[elevenlabs/webhook] llm_turn ids incidentId=${incidentId ?? "null"} callSessionId=${callSessionId ?? "null"} ` +
+        `conversationId=${conversationId ?? "null"} twilioCallSid=${twilioCallSid ?? "null"}`
+    );
 
     // Resolve incident/session IDs (from extra body, or store lookup)
     let resolvedIncidentId = incidentId;
@@ -235,22 +244,36 @@ export const POST = async (request: Request): Promise<Response> => {
         // real Supabase IDs so turn 2+ repositoryCallTurn writes succeed (M1/M4 integration).
         const autoConvKey = conversationId ?? fingerprint;
         const localIncidentId = resolvedIncidentId;
-        void repositoryCallStart({
-          mode: "normal",
-          twilio_call_sid: null,
-          elevenlabs_conversation_id: autoConvKey,
-        }).then((started) => {
-          // Replace temp local UUIDs with real Supabase IDs across all session keys
-          patchVoiceSessionIds(fingerprint, started.incident_id, started.call_session_id);
-          if (conversationId && conversationId !== fingerprint) {
-            patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
-          }
+        const sidForDb = twilioCallSid?.trim() || null;
+        void (async () => {
+          const ct = request.headers.get("content-type") ?? "(none)";
+          const callerPhoneResolved = await resolveCallerPhoneJsonOrTwilio({
+            rawJson: parsedBody,
+            twilioCallSid: sidForDb,
+          });
           console.info(
-            `[elevenlabs/webhook] Session patched: local=${localIncidentId} → supabase=${started.incident_id}`
+            `[elevenlabs/webhook] repositoryCallStart(new-call) content-type=${ct} ` +
+              `CallSid=${sidForDb ?? "null"} elevenlabs_conversation_id=${autoConvKey} ` +
+              `caller_phone=${callerPhoneResolved ?? "null"}`
           );
-        }).catch((e) =>
-          console.error("[elevenlabs/webhook] async call/start error:", e)
-        );
+          try {
+            const started = await repositoryCallStart({
+              mode: "normal",
+              twilio_call_sid: sidForDb,
+              elevenlabs_conversation_id: autoConvKey,
+              caller_phone: callerPhoneResolved,
+            });
+            patchVoiceSessionIds(fingerprint, started.incident_id, started.call_session_id);
+            if (conversationId && conversationId !== fingerprint) {
+              patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
+            }
+            console.info(
+              `[elevenlabs/webhook] Session patched: local=${localIncidentId} → supabase=${started.incident_id}`
+            );
+          } catch (e) {
+            console.error("[elevenlabs/webhook] async call/start error:", e);
+          }
+        })();
       }
     }
 

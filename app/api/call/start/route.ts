@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import type { CallStartResponse } from "@/lib/types/api";
 import { jsonError, zodToMessage } from "@/lib/server/api-route-helpers";
 import { repositoryCallStart } from "@/lib/db/call-repository";
+import { resolveCallerPhoneJsonOrTwilio } from "@/lib/voice/callerPhoneResolution";
 import { callStartRequestSchema } from "@/lib/validation/api-requests";
 
 export const POST = async (request: Request): Promise<NextResponse> => {
+  const contentType = request.headers.get("content-type") ?? "(none)";
   let body: unknown = {};
   try {
     const text = await request.text();
@@ -21,7 +23,24 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   }
 
   try {
-    const result = await repositoryCallStart(parsed.data);
+    const explicitPhone = parsed.data.caller_phone?.trim() || null;
+    const resolvedPhone =
+      explicitPhone ??
+      (await resolveCallerPhoneJsonOrTwilio({
+        rawJson: body,
+        twilioCallSid: parsed.data.twilio_call_sid ?? null,
+      }));
+
+    console.info(
+      `[call/start] content-type=${contentType} twilio_call_sid=${parsed.data.twilio_call_sid ?? "null"} ` +
+        `elevenlabs_conversation_id=${parsed.data.elevenlabs_conversation_id ?? "null"} ` +
+        `caller_phone→repositoryCallStart=${resolvedPhone ?? "null"}`
+    );
+
+    const result = await repositoryCallStart({
+      ...parsed.data,
+      caller_phone: resolvedPhone,
+    });
     const payload: CallStartResponse = {
       incident_id: result.incident_id,
       call_session_id: result.call_session_id,

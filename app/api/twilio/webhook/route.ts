@@ -35,14 +35,22 @@ import {
 } from "@/lib/voice/voiceSessionStore";
 
 export const POST = async (request: Request): Promise<NextResponse> => {
+  const contentType = request.headers.get("content-type") ?? "(none)";
   // 1. Parse Twilio's form-encoded body
   const body = await parseTwilioFormBody(request);
   const callSid = body.CallSid ?? "";
   const callStatus = body.CallStatus ?? "";
-  const callerPhone = body.From?.trim() || null;
+  const callerPhone =
+    body.From?.trim() ||
+    body.from?.trim() ||
+    body.Caller?.trim() ||
+    body.caller?.trim() ||
+    null;
 
   console.info(
-    `[twilio/webhook] Inbound call: CallSid=${callSid} Status=${callStatus}`
+    `[twilio/webhook] content-type=${contentType} inbound CallSid=${callSid || "null"} ` +
+      `CallStatus=${callStatus} From=${callerPhone ?? "(missing)"} ` +
+      `form_keys=${Object.keys(body).sort().join(",")} caller_phone→repositoryCallStart=${callerPhone ?? "null"}`
   );
 
   // Only process new inbound calls
