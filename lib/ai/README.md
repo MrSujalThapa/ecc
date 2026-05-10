@@ -125,16 +125,24 @@ voice integration bypasses `runCallTriageAgent`, it must still include that
 same state memory context in the provider prompt so known details are preserved
 across turns.
 
-The agent prompt requires providers to preserve known `urgency`,
-`incident_type`, `location`, `description`, `collected_fields`, and
-`missing_fields`. It must not ask for details already present in
-`transcriptHistory`, the current incident, or the current call session.
+`voiceSessionStore` now keeps expanded live triage memory for the ElevenLabs
+path: urgency, summary, status/control state, operator/escalation flags,
+location state, collected/missing fields, next/last question, last caller-facing
+reply, transfer status, and a bounded recent final-turn transcript history. The
+history stores compact caller/AI/operator/system turns only and is capped to the
+most recent turns so live calls do not depend on raw webhook payloads.
+
+This memory helps prevent repeated "where are you?" or "what happened?"
+questions after those details were already collected. Collected fields merge
+across turns, while missing fields are only replaced by an explicit validated
+list from the backend/AI result.
 
 To debug repeated questions in the live voice flow, set
 `ECC_VOICE_DEBUG=true` locally and inspect `[ECC Voice Debug] before-ai`,
 `after-ai`, and `after-merge` logs. These compact logs show transcript excerpts,
-state keys, missing fields, provider, and merged triage state without logging
-API keys, auth headers, or raw request bodies.
+bounded transcript-history length, next/last question, state keys, missing
+fields, provider, and merged triage state without logging API keys, auth
+headers, or raw request bodies.
 
 ## Call Transfer and Dispatch Wording Rules
 

@@ -11,19 +11,114 @@
  * Do not import from lib/db, lib/ai, or dashboard components.
  */
 
+const MAX_RECENT_TRANSCRIPT_TURNS = 10;
+
+export type VoiceTranscriptHistoryTurn = {
+  role: "caller" | "ai" | "operator" | "system";
+  text: string;
+  created_at: string;
+};
+
 /**
- * Incident fields captured so far — populated after each async repositoryCallTurn
- * resolves so the next voice turn can skip re-asking for already-known info.
+ * Incident and call-session fields captured so far — populated after each
+ * async repositoryCallTurn resolves so the next voice turn can skip re-asking
+ * for already-known info.
  */
 export type VoiceTriageState = {
   /** e.g. "fire", "medical", "theft" */
   incident_type?: string | null;
+  /** Current urgency from the merged incident state. */
+  urgency?: string | null;
   /** Free-text location string the caller gave. */
   location?: string | null;
+  /** Current location collection status from the incident state. */
+  location_status?: string | null;
+  /** Short incident summary from the merged incident state. */
+  summary?: string | null;
+  /** Incident status from the merged incident state. */
+  status?: string | null;
+  /** Call-session status from the merged call state. */
+  call_status?: string | null;
+  /** Incident control state. */
+  control_state?: string | null;
+  /** Whether the AI is currently active for the call. */
+  ai_active?: boolean | null;
+  /** Whether the incident requires an operator. */
+  operator_required?: boolean | null;
+  /** Whether the call session should escalate. */
+  should_escalate?: boolean | null;
+  /** Transfer status owned by the call session. */
+  operator_transfer_status?: string | null;
+  /** Backend-selected next question to ask. */
+  next_question?: string | null;
+  /** Last question the AI asked the caller. */
+  last_question?: string | null;
+  /** Last caller-facing text returned to ElevenLabs. */
+  last_say_to_caller?: string | null;
+  /** Bounded recent final turns for live voice memory. */
+  recent_transcript_history?: VoiceTranscriptHistoryTurn[] | null;
+  /** Back-compat alias for older callers that used transcriptHistory naming. */
+  transcriptHistory?: VoiceTranscriptHistoryTurn[] | null;
+  /** ISO timestamp of the last triage-state patch. */
+  last_updated_at?: string | null;
   /** Fields already confirmed by the triage agent. */
   collected_fields?: Record<string, string> | null;
   /** Fields still needed. */
   missing_fields?: string[] | null;
+};
+
+const compactText = (value: string): string =>
+  value.replace(/\s+/g, " ").trim().slice(0, 800);
+
+const normalizeTranscriptTurn = (
+  turn: VoiceTranscriptHistoryTurn
+): VoiceTranscriptHistoryTurn | null => {
+  const text = compactText(turn.text);
+  if (!text) return null;
+  return {
+    role: turn.role,
+    text,
+    created_at: turn.created_at || new Date().toISOString(),
+  };
+};
+
+const mergeTranscriptHistory = (
+  existing: VoiceTranscriptHistoryTurn[] | null | undefined,
+  incoming: VoiceTranscriptHistoryTurn[] | null | undefined
+): VoiceTranscriptHistoryTurn[] | null | undefined => {
+  if (!incoming) return existing;
+  const merged = [...(existing ?? [])];
+  for (const turn of incoming) {
+    const normalized = normalizeTranscriptTurn(turn);
+    if (!normalized) continue;
+    const last = merged[merged.length - 1];
+    if (
+      last &&
+      last.role === normalized.role &&
+      last.text === normalized.text &&
+      last.created_at === normalized.created_at
+    ) {
+      continue;
+    }
+    merged.push(normalized);
+  }
+  return merged.slice(-MAX_RECENT_TRANSCRIPT_TURNS);
+};
+
+const mergeCollectedFields = (
+  existing: Record<string, string> | null | undefined,
+  incoming: Record<string, string> | null | undefined
+): Record<string, string> | null | undefined => {
+  if (!incoming) return existing;
+  return { ...(existing ?? {}), ...incoming };
+};
+
+const mergeMissingFields = (
+  existing: string[] | null | undefined,
+  incoming: string[] | null | undefined
+): string[] | null | undefined => {
+  if (!Array.isArray(incoming)) return existing;
+  return [...new Set(incoming.filter((field): field is string => typeof field === "string"))];
 };
 
 export type VoiceSessionEntry = {
@@ -126,8 +221,29 @@ export const patchVoiceTriageState = (
 ): void => {
   const entry = bySid.get(lookup_key) ?? byElId.get(lookup_key);
   if (!entry) return;
-  // Merge into existing state so partial updates don't wipe prior data
-  entry.triage_state = { ...entry.triage_state, ...state };
+  const current = entry.triage_state;
+  const incomingHistory =
+    state.recent_transcript_history ?? state.transcriptHistory ?? undefined;
+  const mergedHistory = mergeTranscriptHistory(
+    current?.recent_transcript_history ?? current?.transcriptHistory,
+    incomingHistory
+  );
+
+  // Merge into existing state so partial updates don't wipe prior data.
+  entry.triage_state = {
+    ...current,
+    ...state,
+    collected_fields: mergeCollectedFields(
+      current?.collected_fields,
+      state.collected_fields
+    ),
+    missing_fields: mergeMissingFields(current?.missing_fields, state.missing_fields),
+    recent_transcript_history: mergedHistory,
+    transcriptHistory: mergedHistory,
+    last_question: state.last_question ?? current?.last_question,
+    last_say_to_caller: state.last_say_to_caller ?? current?.last_say_to_caller,
+    last_updated_at: state.last_updated_at ?? new Date().toISOString(),
+  };
 };
 
 /**

@@ -367,6 +367,22 @@ current CallSession
 This prevents the AI from asking for emergency type, location, or description
 again after those details were already collected.
 
+For the ElevenLabs live voice path, `voiceSessionStore` preserves expanded
+triage memory between turns: urgency, summary, status/control state,
+operator/escalation flags, location state, collected and missing fields,
+next/last question, last caller-facing reply, transfer status, and a bounded
+recent final-turn transcript history. The history stores compact caller/AI
+turns only and keeps the most recent turns, so it gives the AI continuity
+without storing raw webhook payloads.
+
+This helps prevent repeated location or "what happened?" questions. Collected
+fields merge across turns, while missing fields are preserved unless the
+backend/AI result returns an explicit replacement list. With
+`ECC_VOICE_DEBUG=true`, voice debug logs show the bounded transcript-history
+length, next/last question, missing fields, collected-field keys, urgency,
+summary excerpt, operator-required, and escalation state without logging phone
+numbers or secrets.
+
 ---
 
 ## AI Output Shape
