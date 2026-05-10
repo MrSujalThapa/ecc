@@ -41,6 +41,7 @@ export type CallSessionStatus = (typeof CALL_SESSION_STATUSES)[number];
 export const OPERATOR_TRANSFER_STATUSES = [
   "not_requested",
   "requested",
+  "transferring",
   "transferred",
   "failed",
 ] as const;

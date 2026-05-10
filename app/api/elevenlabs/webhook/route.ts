@@ -298,7 +298,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     let isNewCall = false;
     // Resolves with real Supabase IDs once repositoryCallStart completes.
     // The turn 1 save awaits this so it never races against the DB write.
-    let resolveRealIds: (val: { incident_id: string; call_session_id: string } | null) => void = () => {};
+    let resolveRealIds: (val: { incident_id: string; call_session_id: string } | null) => void = () => { };
     const realIdsReady = new Promise<{ incident_id: string; call_session_id: string } | null>(
       (resolve) => { resolveRealIds = resolve; }
     );
@@ -441,9 +441,9 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
      */
     const voiceFallback = (ctx: string, turn: number, lang: string | null): string => {
       const c = ctx.toLowerCase();
-      const hasFire     = /fire|smoke|gas leak|gas|flood|fuego|incendio|feu|feuer/.test(c);
+      const hasFire = /fire|smoke|gas leak|gas|flood|fuego|incendio|feu|feuer/.test(c);
       const hasIntruder = /break.?in|intruder|shooting|stabbing|burglar|intruso|ladr/.test(c);
-      const hasMedical  = /medical|collapse|unconscious|trapped|accident|injur|hurt|chest pain|not breathing|médico|médica|blessé/.test(c);
+      const hasMedical = /medical|collapse|unconscious|trapped|accident|injur|hurt|chest pain|not breathing|médico|médica|blessé/.test(c);
       const hasEmergency = hasFire || hasIntruder || hasMedical || /emergency|emergencia|urgence/.test(c);
 
       // Bilingual hardcoded phrases for the most common caller languages
@@ -451,24 +451,24 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       const PHRASES: Record<string, Phrases> = {
         es: {
           location: "¿Puede describirme qué pasó y dónde está? (Can you describe what happened and where you are?)",
-          help:     "Los servicios de emergencia han sido notificados. Quédese en línea. (Emergency services notified. Stay on the line.)",
-          fire:     "Evacúe si es seguro hacerlo. La ayuda está en camino. (Evacuate if safe. Help is on the way.)",
+          help: "Los servicios de emergencia han sido notificados. Quédese en línea. (Emergency services notified. Stay on the line.)",
+          fire: "Evacúe si es seguro hacerlo. La ayuda está en camino. (Evacuate if safe. Help is on the way.)",
           intruder: "Escóndase y no confronte a nadie. La ayuda llega. (Hide and do not confront anyone. Help is coming.)",
-          medical:  "No mueva a la persona. La ayuda está en camino. (Do not move the person. Help is on the way.)",
+          medical: "No mueva a la persona. La ayuda está en camino. (Do not move the person. Help is on the way.)",
         },
         fr: {
           location: "Pouvez-vous décrire ce qui s'est passé et où vous êtes ? (Can you describe what happened and where you are?)",
-          help:     "Les secours ont été alertés. Restez en ligne. (Emergency services notified. Stay on the line.)",
-          fire:     "Évacuez si c'est sans danger. Les secours arrivent. (Evacuate if safe. Help is on the way.)",
+          help: "Les secours ont été alertés. Restez en ligne. (Emergency services notified. Stay on the line.)",
+          fire: "Évacuez si c'est sans danger. Les secours arrivent. (Evacuate if safe. Help is on the way.)",
           intruder: "Cachez-vous et n'affrontez personne. Les secours arrivent. (Hide and do not confront anyone. Help is coming.)",
-          medical:  "Ne bougez pas la personne. Les secours arrivent. (Do not move the person. Help is on the way.)",
+          medical: "Ne bougez pas la personne. Les secours arrivent. (Do not move the person. Help is on the way.)",
         },
         pt: {
           location: "Pode descrever o que aconteceu e onde você está? (Can you describe what happened and where you are?)",
-          help:     "Os serviços de emergência foram notificados. Fique na linha. (Emergency services notified. Stay on the line.)",
-          fire:     "Evacue se for seguro. A ajuda está a caminho. (Evacuate if safe. Help is on the way.)",
+          help: "Os serviços de emergência foram notificados. Fique na linha. (Emergency services notified. Stay on the line.)",
+          fire: "Evacue se for seguro. A ajuda está a caminho. (Evacuate if safe. Help is on the way.)",
           intruder: "Esconda-se e não confronte ninguém. A ajuda está a caminho. (Hide. Help is coming.)",
-          medical:  "Não mova a pessoa. A ajuda está a caminho. (Do not move the person. Help is on the way.)",
+          medical: "Não mova a pessoa. A ajuda está a caminho. (Do not move the person. Help is on the way.)",
         },
       };
       const p = lang ? PHRASES[lang] : null;
@@ -479,9 +479,9 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           : "Got it. Can you give me your exact location?");
       }
       if (turn === 1) return p?.location ?? "What is your exact location?";
-      if (hasFire)     return p?.fire     ?? "Evacuate immediately if it is safe to do so. Emergency services have been notified and are on their way.";
+      if (hasFire) return p?.fire ?? "Evacuate immediately if it is safe to do so. Emergency services have been notified and are on their way.";
       if (hasIntruder) return p?.intruder ?? "Find a safe place and stay hidden. Do not confront anyone. Help is on the way.";
-      if (hasMedical)  return p?.medical  ?? "Stay calm and do not move the person. Keep them still. Help is on the way.";
+      if (hasMedical) return p?.medical ?? "Stay calm and do not move the person. Keep them still. Help is on the way.";
       return p?.help ?? "Emergency services have been notified. Stay on the line.";
     };
 
@@ -614,8 +614,8 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     const action = shouldTransfer
       ? { type: "transfer" as const, reason: "operator_required" }
       : shouldEnd
-      ? { type: "end" as const, reason: "completed" }
-      : { type: "say" as const, text: sayToCaller };
+        ? { type: "end" as const, reason: "completed" }
+        : { type: "say" as const, text: sayToCaller };
 
     if (action.type === "transfer") {
       if (resolvedTwilioCallSid) {

@@ -6,7 +6,7 @@
  * Rules (in priority order):
  *   1. system_actions containing transfer_to_operator → transfer
  *   2. system_actions containing close_call_session   → end
- *   3. call_session.should_escalate + operator_transfer_status === "requested" → transfer
+ *   3. call_session.should_escalate + operator_transfer_status in requested|transferring → transfer
  *   4. call_session.status === "closed"               → end
  *   5. Default → say the backend's say_to_caller or next_question
  *
@@ -51,7 +51,8 @@ export const getNextVoiceAction = (response: CallTurnResponse): VoiceAction => {
   // 2. Session escalation flag
   if (
     call_session.should_escalate &&
-    call_session.operator_transfer_status === "requested"
+    (call_session.operator_transfer_status === "requested" ||
+      call_session.operator_transfer_status === "transferring")
   ) {
     return { type: "transfer", reason: "operator_escalation" };
   }
