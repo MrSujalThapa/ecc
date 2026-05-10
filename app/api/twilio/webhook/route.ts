@@ -39,6 +39,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   const body = await parseTwilioFormBody(request);
   const callSid = body.CallSid ?? "";
   const callStatus = body.CallStatus ?? "";
+  const callerPhone = body.From?.trim() || null;
 
   console.info(
     `[twilio/webhook] Inbound call: CallSid=${callSid} Status=${callStatus}`
@@ -67,6 +68,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       mode,
       twilio_call_sid: callSid,
       elevenlabs_conversation_id: null,
+      caller_phone: callerPhone,
     });
     incidentId = started.incident_id;
     callSessionId = started.call_session_id;

@@ -3,7 +3,7 @@ import type { SafeToolName } from "../schemas/toolRequestSchema";
 
 const CREATED_AT = "2026-05-07T00:00:00.000Z";
 
-export const mockToolResults: ToolResult[] = [
+export const mockToolResults = [
   {
     tool_request_id: "tr-bike-dp-geocode",
     tool: "geocode_location",
@@ -206,7 +206,7 @@ export const mockToolResults: ToolResult[] = [
     },
     created_at: CREATED_AT,
   },
-];
+] as unknown as ToolResult[];
 
 export function getMockToolResultsByTool(toolName: SafeToolName): ToolResult[] {
   return mockToolResults.filter((result) => result.tool === toolName);

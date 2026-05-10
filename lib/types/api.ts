@@ -25,6 +25,7 @@ export type CallStartRequest = {
   mode?: AppMode;
   twilio_call_sid?: string | null;
   elevenlabs_conversation_id?: string | null;
+  caller_phone?: string | null;
 };
 
 export type CallStartResponse = {
@@ -162,12 +163,15 @@ export type OperatorSendSmsRequest = {
   incident_id: string;
   operator_id: string;
   message: string;
+  /** Optional override; otherwise backend uses latest session `caller_phone`. */
+  to?: string | null;
 };
 
 export type OperatorSendSmsResponse = {
   incident_id: string;
   sent: boolean;
   provider_message_id?: string;
+  error?: string;
 };
 
 // --- POST /api/simulate/disaster | world-cup ---

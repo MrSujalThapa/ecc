@@ -29,6 +29,7 @@ import {
   getIncident,
   getTranscriptHistoryForSession,
   listAllIncidentsSorted,
+  listCallSessionsForIncidentByCreatedDesc,
   listCallSessionsForIncidentSorted,
   newAuditLog,
   resetDemoStore,
@@ -309,6 +310,7 @@ export const repositoryCallStart = async (
     const session = createCallSessionForIncident(incident, {
       twilio_call_sid: parsed.twilio_call_sid ?? null,
       elevenlabs_conversation_id: parsed.elevenlabs_conversation_id ?? null,
+      caller_phone: parsed.caller_phone ?? null,
     });
     newAuditLog({
       incident_id: incident.id,
@@ -339,6 +341,7 @@ export const repositoryCallStart = async (
   const sRow = newCallSessionInsertRow(sid, id, t, {
     twilio_call_sid: parsed.twilio_call_sid ?? null,
     elevenlabs_conversation_id: parsed.elevenlabs_conversation_id ?? null,
+    caller_phone: parsed.caller_phone ?? null,
   });
   const { data: sess, error: sErr } = await client
     .from("call_sessions")
@@ -1289,6 +1292,33 @@ export const repositorySimulateWorldCup = async (input: {
     event_layers,
     mode: "world_cup",
   };
+};
+
+/** Latest `caller_phone` for operator SMS when request omits `to`. */
+export const repositoryLatestCallerPhoneForIncident = async (
+  incident_id: string
+): Promise<string | null> => {
+  const client = getServiceRoleClient();
+  if (!client) {
+    const sessions = listCallSessionsForIncidentByCreatedDesc(incident_id);
+    const raw = sessions[0]?.caller_phone?.trim();
+    return raw && raw.length > 0 ? raw : null;
+  }
+
+  const { data, error } = await client
+    .from("call_sessions")
+    .select("caller_phone")
+    .eq("incident_id", incident_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  const raw =
+    data?.caller_phone === null || data?.caller_phone === undefined
+      ? null
+      : String(data.caller_phone).trim();
+  return raw && raw.length > 0 ? raw : null;
 };
 
 // --- operator send SMS (stub provider) ---

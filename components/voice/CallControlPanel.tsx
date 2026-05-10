@@ -58,7 +58,10 @@ export function CallControlPanel({
 
   async function runAction(
     name: ActionName,
-    action: () => Promise<{ tone?: "success" | "neutral"; message: string }>,
+    action: () => Promise<{
+      tone?: "success" | "neutral" | "error";
+      message: string;
+    }>,
   ) {
     setActiveAction(name);
     setFeedback(null);
@@ -125,10 +128,17 @@ export function CallControlPanel({
         };
       }
 
+      if (result.error) {
+        return {
+          tone: "error",
+          message: result.error,
+        };
+      }
+
       return {
         tone: "neutral",
         message:
-          "SMS endpoint completed, but provider reported sent=false. This may be the current backend stub.",
+          "SMS was not sent (Twilio may be disabled or the send failed). Check server logs.",
       };
     });
   }

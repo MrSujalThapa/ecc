@@ -117,7 +117,7 @@ const getBaseUrl = (request: Request): string => {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export const POST = async (request: Request): Promise<NextResponse> => {
+export const POST = async (request: Request): Promise<Response> => {
   // Read raw body for signature verification
   const rawBody = await request.text();
 
@@ -168,7 +168,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     // Resolve incident/session IDs (from extra body, or store lookup)
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
-    let resolvedTwilioCallSid = twilioCallSid;
+    const resolvedTwilioCallSid = twilioCallSid;
 
     // Fallback: look up by conversation_id
     if ((!resolvedIncidentId || !resolvedCallSessionId) && conversationId) {
@@ -321,8 +321,8 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     };
 
     let sayToCaller: string;
-    let shouldTransfer = false;
-    let shouldEnd = false;
+    const shouldTransfer = false;
+    const shouldEnd = false;
 
     try {
       const transcriptHistory = substantiveUserMsgs.slice(0, -1);

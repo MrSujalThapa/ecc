@@ -1,5 +1,13 @@
 import type { AgentDecision } from "../schemas/callTriageAgentOutputV2Schema";
-import type { ToolRequest } from "../schemas/toolRequestSchema";
+
+/** Fixture shape may reference planned tools not yet in `safeToolNameSchema`. */
+export type AgenticExpectedToolRequest = {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  reason: string;
+  safety_level: "read_only" | "operator_confirm_required";
+};
 
 export type AgenticTriageExample = {
   id: string;
@@ -8,7 +16,7 @@ export type AgenticTriageExample = {
   latestTranscript: string;
   languageHint?: string | null;
   expectedDecision: AgentDecision;
-  expectedToolRequests: ToolRequest[];
+  expectedToolRequests: AgenticExpectedToolRequest[];
   notes: string;
 };
 
