@@ -43,6 +43,37 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
       "Normal-mode non-emergency theft report. V2 should continue AI intake after asking for item description, time of theft, suspect info, and callback details.",
   },
   {
+    id: "agentic-lost-bike-safe-report",
+    name: "Lost bike property report",
+    mode: "normal",
+    latestTranscript: "My bike is missing.",
+    languageHint: null,
+    expectedDecision: "continue_ai_handling",
+    expectedToolRequests: [],
+    expectedIncidentPatch: {
+      urgency: "non_emergency",
+      incident_type: "lost_item",
+      operator_required: false,
+      missing_fields: [
+        "item_description",
+        "last_seen_location",
+        "time_last_seen",
+        "suspect_info",
+        "caller_safety",
+        "callback_number",
+      ],
+    },
+    expectedCallSessionPatch: {
+      should_escalate: false,
+      next_question:
+        "What does the bike look like, and where was it last seen?",
+    },
+    expectedCallerResponse:
+      "What does the bike look like, and where was it last seen?",
+    notes:
+      "Safe property/lost-item reports stay in AI intake. The agent should ask for item description and last seen location, with no transfer or dispatch promise.",
+  },
+  {
     id: "agentic-active-break-in-no-location",
     name: "Active break-in with no exact location",
     mode: "normal",
@@ -135,7 +166,7 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
         "What is the vehicle make, model, color, and license plate?",
     },
     expectedCallerResponse:
-      "I'm going to gather the key information now. What is the vehicle make, model, color, and license plate?",
+      "I'll collect the details now. What is the vehicle make, model, color, and license plate?",
     notes:
       "After the caller confirms they are safe, continue vehicle theft intake. Do not mark critical, transfer, or say help is on the way without backend/operator confirmation.",
   },
@@ -267,11 +298,13 @@ export const agenticTriageExamples: AgenticTriageExample[] = [
     },
     expectedCallSessionPatch: {
       should_escalate: true,
-      next_question: "I am connecting you to an operator now.",
+      next_question:
+        "Stay on the line while I check the next step. What time did this happen?",
     },
-    expectedCallerResponse: "I am connecting you to an operator now.",
+    expectedCallerResponse:
+      "Stay on the line while I check the next step. What time did this happen?",
     notes:
-      "After description details are collected, do not ask for location or what happened again. Escalate/transfer or ask only for a remaining high-value detail such as last seen time.",
+      "After description details are collected, do not ask for location or what happened again. Request operator transfer through structured output, but keep collecting high-value details unless backend confirms transfer.",
   },
   {
     id: "agentic-medical-collapse-gate-3",

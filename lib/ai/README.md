@@ -130,10 +130,20 @@ The agent prompt requires providers to preserve known `urgency`,
 `missing_fields`. It must not ask for details already present in
 `transcriptHistory`, the current incident, or the current call session.
 
-Caller-facing responses must not imply dispatch has occurred unless backend
-state or an operator has confirmed it. For example, avoid "help is on the way"
-for report-intake cases like safe vehicle theft; collect details and escalate
-only if danger, policy, or operator state requires it.
+## Call Transfer and Dispatch Wording Rules
+
+AI only recommends transfer through structured fields. Backend checks operator
+availability and decides whether transfer should happen; voice/Twilio performs
+the actual live call transfer.
+
+Caller-facing responses must not imply dispatch has occurred unless backend,
+voice, or an operator has confirmed it. Avoid "help is on the way", "police are
+coming", "firefighters are coming", or "ambulance is coming" for report-intake
+cases like safe vehicle theft or lost property.
+
+Safe property reports, lost items, and vehicle theft where the caller is safe
+should stay with AI intake unless danger appears or backend state says an
+operator is needed. There is no priority queue logic for now.
 
 ## Mock examples — sanity check the wiring
 
