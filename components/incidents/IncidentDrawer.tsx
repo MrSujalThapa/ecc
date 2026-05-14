@@ -6,6 +6,7 @@ import type { OperatorActions } from "@/lib/data/operatorActions";
 import { AITracePanel } from "@/components/incidents/AITracePanel";
 import { IncidentTimeline } from "@/components/incidents/IncidentTimeline";
 import { MissingFieldsChecklist } from "@/components/incidents/MissingFieldsChecklist";
+import { MultilingualTracePanel } from "@/components/incidents/MultilingualTracePanel";
 import { CallControlPanel } from "@/components/voice/CallControlPanel";
 import { LiveTranscriptPanel } from "@/components/voice/LiveTranscriptPanel";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
@@ -195,6 +196,11 @@ function IncidentDrawerContent({
               </Section>
 
               <AITracePanel
+                incident={incident}
+                activeCallSession={activeCallSession}
+              />
+
+              <MultilingualTracePanel
                 incident={incident}
                 activeCallSession={activeCallSession}
               />
