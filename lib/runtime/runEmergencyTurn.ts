@@ -9,7 +9,14 @@ import type {
 
 export type RuntimeAction = SystemAction;
 
-export type TransferRecommendation = null;
+export type TransferRecommendation = {
+  recommended: boolean;
+  reason: string;
+  source: "triage" | "transfer_gate" | "runtime";
+  urgency?: string;
+  operator_required?: boolean;
+  action_type?: string;
+} | null;
 
 export type OperatorAssignmentResult = null;
 
@@ -30,6 +37,40 @@ export type EmergencyTurnResult = {
   validation_warnings: [];
 };
 
+type RepositoryTurnResult = Awaited<ReturnType<typeof repositoryCallTurn>>;
+
+const deriveTransferRecommendation = (
+  result: RepositoryTurnResult
+): TransferRecommendation => {
+  const transferAction = result.actions.find(
+    (action) => action.action === "transfer_to_operator"
+  );
+  const transferStatus = result.call_session.operator_transfer_status;
+  const hasRequestedTransfer =
+    transferStatus === "requested" || transferStatus === "transferring";
+  const hasEscalationSignals =
+    result.call_session.should_escalate === true &&
+    result.incident.operator_required === true;
+
+  if (!transferAction && !hasRequestedTransfer && !hasEscalationSignals) {
+    return null;
+  }
+
+  return {
+    recommended: true,
+    reason:
+      transferAction?.reason ??
+      (result.incident.operator_required === true
+        ? "operator_required"
+        : "should_escalate"),
+    source:
+      transferAction || hasRequestedTransfer ? "transfer_gate" : "triage",
+    urgency: result.incident.urgency,
+    operator_required: result.incident.operator_required ?? undefined,
+    action_type: transferAction?.action,
+  };
+};
+
 export const runEmergencyTurn = async (
   input: CallTurnRequest
 ): Promise<EmergencyTurnResult> => {
@@ -44,7 +85,7 @@ export const runEmergencyTurn = async (
     transcript_event: result.transcript_event,
     actions: result.actions,
     triage_trace: result.triage_trace,
-    transfer_recommendation: null,
+    transfer_recommendation: deriveTransferRecommendation(result),
     operator_assignment: null,
     agent_trace_view: null,
     validation_warnings: [],
