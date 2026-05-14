@@ -1019,13 +1019,13 @@ Next phase should focus on backend GeoOps authority. Do not implement dashboard 
 
 ---
 
-## Phase 14 — Fix Backend GeoOps Route and Persistence
+## Phase 14 ? Fix Backend GeoOps Route and Persistence
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1033,34 +1033,52 @@ Align `/api/surge/analyze` with `repositorySurgeAnalyze`; persist `cluster_id` /
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Rewired the surge analyze route to the authoritative repository path.
+- [x] Added backend GeoOps cluster provenance / priority metadata and updated focused repository coverage.
 
 ### Files Changed
 
+- `app/api/surge/analyze/route.ts`
+- `lib/db/call-repository.ts`
+- `lib/types/domain.ts`
+- `lib/db/call-repository.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 133 tests across 17 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing unrelated warnings
 
 ### Result
 
-Not started.
+- `/api/surge/analyze` now validates `SurgeAnalyzeRequest`.
+- `/api/surge/analyze` now calls `repositorySurgeAnalyze(...)` instead of running GeoOps directly.
+- The route now behaves as a thin authoritative backend wrapper.
+- The route returns the shared repository response shape directly.
+- Supabase-backed incident sourcing and demo-store fallback both continue through `repositorySurgeAnalyze()`.
+- Backend GeoOps clusters now include `source: "backend_geoops"`.
+- Backend GeoOps clusters now map `priority_score`.
+- `SurgeCluster` now supports optional `source` and `priority_score`.
+- Current dashboard/client clustering was not changed.
+
+### Tests
+
+- Updated `lib/db/call-repository.test.ts`.
+- Added/updated coverage for backend cluster provenance and priority metadata.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 15 can begin by fixing dashboard initial hydration/fallback behavior.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on frontend data hydration and fallback reliability. It should not change backend GeoOps behavior, transfer behavior, SMS, Mapbox MCP, ElevenLabs, or multilingual polish.
 
 ---
 
