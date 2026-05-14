@@ -166,11 +166,11 @@ Next contributor should start Phase 3 using the contracts in `docs/polish/master
 
 ## Phase 3 — Create runEmergencyTurn() Runtime Wrapper
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -178,34 +178,62 @@ Add `lib/runtime/runEmergencyTurn.ts` as a central wrapper initially delegating 
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `lib/runtime/runEmergencyTurn.ts`.
+- [x] Added a self-contained `runEmergencyTurn(input)` wrapper around `repositoryCallTurn(input)` without rewiring any routes.
 
 ### Files Changed
+
+- `lib/runtime/runEmergencyTurn.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
 
 ### Result
 
-Not started.
+Phase 3 is completed and not yet verified.
+
+- Added `lib/runtime/runEmergencyTurn.ts`.
+- Added a self-contained `runEmergencyTurn(input)` wrapper around `repositoryCallTurn(input)`.
+- The wrapper calls `repositoryCallTurn` exactly once.
+- No custom error handling was added, so repository errors propagate unchanged.
+- Current repository result fields are preserved unchanged:
+  - `say_to_caller`
+  - `incident`
+  - `call_session`
+  - `transcript_event`
+  - `actions`
+  - `triage_trace`
+- Additive wrapper fields were added:
+  - `incident_id`
+  - `call_session_id`
+  - `transfer_recommendation: null`
+  - `operator_assignment: null`
+  - `agent_trace_view: null`
+  - `validation_warnings: []`
+- No routes were rewired.
+- `/api/call/turn` was not changed.
+- ElevenLabs webhook was not changed.
+- `repositoryCallTurn` was not changed.
+- No runtime behavior changed because the wrapper is not used by existing routes yet.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 4 can route `/api/call/turn` through `runEmergencyTurn()` while preserving the existing response shape.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should only rewire `/api/call/turn` to use the wrapper. It should not touch ElevenLabs yet; that belongs to Phase 5.
 
 ---
 
