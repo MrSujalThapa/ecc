@@ -949,13 +949,13 @@ Phase 13 can begin by connecting transfer recommendation to the operator assignm
 Next phase should wire runtime transfer recommendation to assignment recommendation. It should not implement Mapbox MCP changes, GeoOps persistence, dashboard UI, SMS changes, or multilingual polish.
 
 ---
-## Phase 13 — Connect Transfer Recommendation to Assignment Logic
+## Phase 13 ? Connect Transfer Recommendation to Assignment Logic
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -963,34 +963,59 @@ Connect triage transfer recommendation to assignment logic; behavior visible in 
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Connected advisory transfer recommendation to advisory operator assignment in the runtime wrapper.
+- [x] Added advisory operator-state provider glue and expanded focused runtime tests.
 
 ### Files Changed
 
+- `lib/runtime/runEmergencyTurn.ts`
+- `lib/server/operatorAvailability.ts`
+- `lib/runtime/runEmergencyTurn.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm run build` via `npm.cmd` ? passed  
+`npm run test:run` via `npm.cmd` ? passed, 133 tests across 17 files  
+`npm run lint` via `npm.cmd` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- `runEmergencyTurn()` now connects advisory `transfer_recommendation` to advisory `operator_assignment`.
+- When `transfer_recommendation` is null, `operator_assignment` remains null.
+- When transfer is recommended, runtime uses the Phase 12 operator assignment engine with synthetic advisory operator state.
+- Added a tiny env-backed advisory operator provider in `lib/server/operatorAvailability.ts`.
+- If advisory operator state is unavailable, runtime returns `operator_assignment: null` and adds a validation warning.
+- This remains advisory only.
+- No DB writes were added.
+- No Twilio transfer is triggered.
+- No operator assignment is persisted.
+- `/api/call/turn`, ElevenLabs behavior, transfer execution, SMS, Mapbox MCP, GeoOps, dashboard UI, and multilingual behavior were not changed.
+
+### Tests
+
+- Expanded `lib/runtime/runEmergencyTurn.test.ts`.
+- Covered:
+  - no transfer recommendation ? no operator assignment
+  - transfer recommendation + free advisory operator ? assignment produced
+  - transfer recommendation + busy advisory operator ? incident queued/no assignment
+  - unavailable operator state ? validation warning
+  - wrapper fields preserved
+  - repository errors still propagate unchanged
 
 ### Issues / Blockers
 
-None yet.
+- PowerShell blocked `npm.ps1`, so commands were run through `npm.cmd`.
+- No implementation blocker.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 14 can begin by fixing backend GeoOps route and persistence.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on backend GeoOps authority. Do not implement dashboard UI, SMS changes, multilingual polish, or additional transfer behavior yet.
 
 ---
 
