@@ -33,11 +33,11 @@ Sequential work on branch **`polish/full-agent-runtime-polish`** only (unless te
 
 ## Phase 1 — Create Polish Docs and Contracts
 
-**Status:** Not Started  
-**Owner:** Unassigned  
-**Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Status:** Completed  
+**Owner:** Sujal / current contributor  
+**Branch:** `polish/full-agent-runtime-polish`  
+**Started:** 2026-05-12  
+**Completed:** 2026-05-12
 
 ### Goal
 
@@ -45,38 +45,63 @@ Create the docs structure and shared contracts outline for the polish sprint (`d
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Created `docs/polish/master_project_plan.md`
+- [x] Created `docs/polish/phase_execution_log.md`
+- [x] Added the 21-phase ECC Agent Runtime Polish Master Plan
+- [x] Added branching/collaboration rules for `main`, `polish-integration`, and `polish/full-agent-runtime-polish`
+- [x] Added Cursor/Codex rules
+- [x] Added verification rules
+- [x] Added shared-file caution list
+- [x] Added initial contract outlines (Appendix A) in the master plan
+- [x] Added execution-log templates for all 21 phases
+- [x] Created `docs/polish/cursor_phase_prompts.md` (ready-to-paste Cursor prompts for future contributors)
 
 ### Files Changed
 
-_(none yet)_
+- `docs/polish/master_project_plan.md` (new)
+- `docs/polish/phase_execution_log.md` (new)
+- `docs/polish/cursor_phase_prompts.md` (new)
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
+
+Output (post-commit sanity check on contributor machine):
+
+```
+On branch polish/full-agent-runtime-polish
+Your branch is up to date with 'origin/polish/full-agent-runtime-polish'.
+
+nothing to commit, working tree clean
+```
+
+(`git diff --stat` produced no output — clean tree.)
+
+**Note:** Phase 1 verification is documentation-only per `docs/polish/master_project_plan.md` (§7 Phase 1). Full `npm run build` / `npm run test:run` / `npm run lint` cycle applies starting after substantive implementation phases; run before marking later phases **Verified**.
 
 ### Result
 
-Not started.
+Created the master plan, execution log, and Cursor prompt guide. Future contributors can now follow the execution log, read the master plan, and copy the next phase prompt from `docs/polish/cursor_phase_prompts.md`.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+None. Phase 2 can begin.
 
 ### Commit Hashes
 
-_(none)_
+- `fd3db50` — `phase 1.1: add polish sprint docs` (initial `docs/polish/*` scaffold)
+- _(add hash after commit)_ — `docs: update phase 1 execution log` (mark Phase 1 **Completed**)
 
 ### Handoff Notes
 
-None yet.
+Next contributor should start Phase 2 using the Phase 2 Ready-to-Paste Prompt in `docs/polish/cursor_phase_prompts.md`.
 
 ---
 
