@@ -437,9 +437,9 @@ Phase 6 is completed and not yet verified.
 
 Command results:
 
-- `npm run build` — passed.
-- `npm run test:run` — passed, `95` tests across `11` files.
-- `npm run lint` — passed with `0` errors and `6` existing warnings.
+- `npm run build` ï¿½ passed.
+- `npm run test:run` ï¿½ passed, `95` tests across `11` files.
+- `npm run lint` ï¿½ passed with `0` errors and `6` existing warnings.
 
 ### Issues / Blockers
 
@@ -528,13 +528,13 @@ Phase 8 can begin by scaffolding the Mapbox MCP broker and backend-safe tool lay
 Next phase should focus only on Mapbox MCP/tool scaffolding. It should not implement operator assignment, GeoOps persistence, dashboard AI trace, or multilingual polish yet.
 ---
 
-## Phase 8 â€” Scaffold Mapbox MCP Broker and Tool Layer
+## Phase 8 ? Scaffold Mapbox MCP Broker and Tool Layer
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -542,34 +542,71 @@ Create backend-safe MCP/tool structure under `lib/mcp/*` and `lib/tools/mapbox/*
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added scaffold-only Mapbox MCP broker and config/tool adapter surfaces without wiring them into the active runtime tool path.
+- [x] Added minimal scaffold tests and a Phase 8 contract doc for later Phase 9 / Phase 10 integration.
 
 ### Files Changed
+
+- `lib/mcp/types.ts`
+- `lib/mcp/mapboxMcpClient.ts`
+- `lib/mcp/mapboxMcpClient.test.ts`
+- `lib/tools/mapbox/mapboxToolConfig.ts`
+- `lib/tools/mapbox/mapboxToolConfig.test.ts`
+- `lib/tools/mapbox/types.ts`
+- `docs/polish/contracts/mapbox_mcp_tool_contract.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 8 is completed and not yet verified.
+
+- Added a scaffold-only Mapbox MCP broker surface.
+- Added `createMapboxMcpClient()` with safe-off default behavior.
+- Missing Mapbox MCP env/config now produces unavailable/disabled state instead of breaking the app.
+- Enabled-without-token reports misconfiguration.
+- Enabled-with-token still returns a Phase 8 `not_implemented` scaffold result.
+- Added future Mapbox tool adapter/config scaffolding.
+- Added hosted vs self-hosted MCP config expectations.
+- Added timeout defaults and availability helpers.
+- Added a Phase 8 contract doc explaining how Phase 9 and Phase 10 should plug into the scaffold.
+- Did not register new Mapbox tools in `toolRegistry`.
+- Did not replace `geocode_location`.
+- Did not change triage/runtime behavior, ElevenLabs, SMS, transfer, GeoOps, or dashboard UI.
+
+### Tests
+
+- Added config helper tests.
+- Added MCP client scaffold tests.
+
+Command results:
+
+- `npm run build` ? passed.
+- `npm run test:run` ? passed, `105` tests across `14` files.
+- `npm run lint` ? passed, `0` errors and `6` pre-existing warnings in unrelated files:
+  - `app/api/twilio/dial-result/route.ts`
+  - `components/map/CommandMap.tsx`
+  - `lib/ai/toolResults.ts`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 9 can begin by implementing the real Mapbox MCP geocode/search adapter using the scaffold added in Phase 8.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should implement MCP-backed geocode/search behavior without replacing `geocode_location` yet. Phase 10 owns replacing the existing geocode executor. Do not implement dashboard UI, operator assignment, GeoOps persistence, SMS, or multilingual changes in Phase 9.
 
 ---
 
