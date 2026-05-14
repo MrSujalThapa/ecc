@@ -3,6 +3,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { CallSession, Incident } from "@/lib/types";
 import type { OperatorActions } from "@/lib/data/operatorActions";
+import { AITracePanel } from "@/components/incidents/AITracePanel";
 import { MissingFieldsChecklist } from "@/components/incidents/MissingFieldsChecklist";
 import { CallControlPanel } from "@/components/voice/CallControlPanel";
 import { LiveTranscriptPanel } from "@/components/voice/LiveTranscriptPanel";
@@ -191,6 +192,11 @@ function IncidentDrawerContent({
               <Section title="Missing fields">
                 <MissingFieldsChecklist fields={incident.missing_fields} />
               </Section>
+
+              <AITracePanel
+                incident={incident}
+                activeCallSession={activeCallSession}
+              />
             </div>
           ) : null}
 
