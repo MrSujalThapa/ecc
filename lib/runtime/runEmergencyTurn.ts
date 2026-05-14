@@ -1,5 +1,10 @@
 import { repositoryCallTurn } from "@/lib/db/call-repository";
+import {
+  buildOperatorAssignments,
+  type OperatorAssignmentResult as AdvisoryOperatorAssignmentResult,
+} from "@/lib/dispatch/operatorAssignmentEngine";
 import type { SystemAction } from "@/lib/ai/schemas/triageAgentOutputSchema";
+import { getAdvisoryOperatorStates } from "@/lib/server/operatorAvailability";
 import type { CallTurnRequest, TriageTrace } from "@/lib/types/api";
 import type {
   CallSession,
@@ -18,7 +23,7 @@ export type TransferRecommendation = {
   action_type?: string;
 } | null;
 
-export type OperatorAssignmentResult = null;
+export type OperatorAssignmentResult = AdvisoryOperatorAssignmentResult | null;
 
 export type AgentTraceView = null;
 
@@ -34,7 +39,7 @@ export type EmergencyTurnResult = {
   transfer_recommendation: TransferRecommendation;
   operator_assignment: OperatorAssignmentResult;
   agent_trace_view: AgentTraceView;
-  validation_warnings: [];
+  validation_warnings: string[];
 };
 
 type RepositoryTurnResult = Awaited<ReturnType<typeof repositoryCallTurn>>;
@@ -71,10 +76,51 @@ const deriveTransferRecommendation = (
   };
 };
 
+const deriveOperatorAssignment = (
+  result: RepositoryTurnResult,
+  transferRecommendation: TransferRecommendation
+): {
+  operator_assignment: OperatorAssignmentResult;
+  validation_warnings: string[];
+} => {
+  if (!transferRecommendation?.recommended) {
+    return {
+      operator_assignment: null,
+      validation_warnings: [],
+    };
+  }
+
+  const advisoryOperatorStates = getAdvisoryOperatorStates();
+  if (!advisoryOperatorStates.operators) {
+    return {
+      operator_assignment: null,
+      validation_warnings: advisoryOperatorStates.warning
+        ? [advisoryOperatorStates.warning]
+        : ["operator_state_unavailable"],
+    };
+  }
+
+  return {
+    operator_assignment: buildOperatorAssignments({
+      incidents: [result.incident],
+      operators: advisoryOperatorStates.operators,
+      now: result.incident.updated_at,
+    }),
+    validation_warnings: advisoryOperatorStates.warning
+      ? [advisoryOperatorStates.warning]
+      : [],
+  };
+};
+
 export const runEmergencyTurn = async (
   input: CallTurnRequest
 ): Promise<EmergencyTurnResult> => {
   const result = await repositoryCallTurn(input);
+  const transferRecommendation = deriveTransferRecommendation(result);
+  const assignmentOutcome = deriveOperatorAssignment(
+    result,
+    transferRecommendation
+  );
 
   return {
     incident_id: result.incident.id,
@@ -85,9 +131,9 @@ export const runEmergencyTurn = async (
     transcript_event: result.transcript_event,
     actions: result.actions,
     triage_trace: result.triage_trace,
-    transfer_recommendation: deriveTransferRecommendation(result),
-    operator_assignment: null,
+    transfer_recommendation: transferRecommendation,
+    operator_assignment: assignmentOutcome.operator_assignment,
     agent_trace_view: null,
-    validation_warnings: [],
+    validation_warnings: assignmentOutcome.validation_warnings,
   };
 };

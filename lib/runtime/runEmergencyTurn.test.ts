@@ -6,8 +6,16 @@ const { repositoryCallTurn } = vi.hoisted(() => ({
   repositoryCallTurn: vi.fn(),
 }));
 
+const { getAdvisoryOperatorStates } = vi.hoisted(() => ({
+  getAdvisoryOperatorStates: vi.fn(),
+}));
+
 vi.mock("@/lib/db/call-repository", () => ({
   repositoryCallTurn,
+}));
+
+vi.mock("@/lib/server/operatorAvailability", () => ({
+  getAdvisoryOperatorStates,
 }));
 
 import { runEmergencyTurn } from "./runEmergencyTurn";
@@ -99,6 +107,19 @@ const buildRepositoryResult = (overrides: {
 describe("runEmergencyTurn", () => {
   beforeEach(() => {
     repositoryCallTurn.mockReset();
+    getAdvisoryOperatorStates.mockReset();
+    getAdvisoryOperatorStates.mockReturnValue({
+      operators: [
+        {
+          operator_id: "operator-1",
+          name: "Primary Operator",
+          status: "free",
+          current_incident_id: null,
+        },
+      ],
+      warning: null,
+      source: "env",
+    });
   });
 
   it("returns transfer_recommendation from transfer action and preserves fields", async () => {
@@ -141,6 +162,20 @@ describe("runEmergencyTurn", () => {
     expect(result.incident.id).toBe("incident-1");
     expect(result.call_session.id).toBe("session-1");
     expect(result.actions).toHaveLength(1);
+    expect(result.operator_assignment).toEqual({
+      assignments: [
+        {
+          operator_id: "operator-1",
+          incident_id: "incident-1",
+          reason: expect.stringContaining("critical urgency"),
+          priority_score: expect.any(Number),
+        },
+      ],
+      queued_incidents: [],
+      unchanged_busy_operators: [],
+      ineligible_incidents: [],
+    });
+    expect(result.validation_warnings).toEqual([]);
   });
 
   it("returns transfer_recommendation from gated session transfer state without action", async () => {
@@ -219,6 +254,84 @@ describe("runEmergencyTurn", () => {
     });
 
     expect(result.transfer_recommendation).toBeNull();
+    expect(result.operator_assignment).toBeNull();
+    expect(getAdvisoryOperatorStates).not.toHaveBeenCalled();
+  });
+
+  it("returns queued advisory assignment when all operators are busy", async () => {
+    getAdvisoryOperatorStates.mockReturnValue({
+      operators: [
+        {
+          operator_id: "operator-1",
+          name: "Primary Operator",
+          status: "busy",
+          current_incident_id: "active-incident",
+        },
+      ],
+      warning: null,
+      source: "env",
+    });
+    repositoryCallTurn.mockResolvedValue(
+      buildRepositoryResult({
+        incident: {
+          urgency: "critical",
+          operator_required: true,
+        },
+        call_session: {
+          should_escalate: true,
+          operator_transfer_status: "requested",
+        },
+      })
+    );
+
+    const result = await runEmergencyTurn({
+      incident_id: "incident-1",
+      call_session_id: "session-1",
+      speaker: "caller",
+      text: "Please connect me to someone.",
+      is_final: true,
+    });
+
+    expect(result.operator_assignment).toEqual({
+      assignments: [],
+      queued_incidents: ["incident-1"],
+      unchanged_busy_operators: ["operator-1"],
+      ineligible_incidents: [],
+    });
+    expect(result.validation_warnings).toEqual([]);
+  });
+
+  it("returns null assignment with warning when operator state is unavailable", async () => {
+    getAdvisoryOperatorStates.mockReturnValue({
+      operators: null,
+      warning: "operator_state_unavailable",
+      source: "unavailable",
+    });
+    repositoryCallTurn.mockResolvedValue(
+      buildRepositoryResult({
+        incident: {
+          urgency: "urgent",
+          operator_required: true,
+        },
+        call_session: {
+          should_escalate: true,
+          operator_transfer_status: "requested",
+        },
+      })
+    );
+
+    const result = await runEmergencyTurn({
+      incident_id: "incident-1",
+      call_session_id: "session-1",
+      speaker: "caller",
+      text: "I need an operator.",
+      is_final: true,
+    });
+
+    expect(result.operator_assignment).toBeNull();
+    expect(result.validation_warnings).toEqual([
+      "operator_state_unavailable",
+    ]);
   });
 
   it("propagates repository errors unchanged", async () => {
