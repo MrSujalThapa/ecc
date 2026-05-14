@@ -1149,13 +1149,13 @@ Next phase should focus on surfacing provider/tool/validation/transfer metadata 
 
 ---
 
-## Phase 16 — Add AI Trace Panel
+## Phase 16 ? Add AI Trace Panel
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1163,34 +1163,62 @@ Incident drawer shows provider, fallback status, tools used, validation summary,
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added a small AI Trace panel to the incident drawer triage tab.
+- [x] Added a pure summary helper and focused tests for honest available/unavailable AI metadata rendering.
 
 ### Files Changed
 
+- `components/incidents/IncidentDrawer.tsx`
+- `components/incidents/AITracePanel.tsx`
+- `lib/dashboard/buildAITraceSummary.ts`
+- `lib/dashboard/buildAITraceSummary.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 141 tests across 19 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added an honest AI Trace panel inside the incident drawer triage tab.
+- Added `AITracePanel` as a collapsible AI/runtime metadata section.
+- Added `buildAITraceSummary` as a pure helper so the panel only reflects data the drawer actually has.
+- The panel shows available metadata for:
+  - recommended action
+  - next AI question
+  - operator-required / escalation signals
+  - transfer status
+  - location confidence
+  - model confidence when available
+  - missing-field state
+  - collected-field state
+  - updated-by metadata
+- When deeper runtime/tool/provider trace data is not available, the panel explicitly says detailed runtime trace is not available in the drawer yet.
+- No hardcoded provider/tool claims were added.
+- No backend/runtime, GeoOps, SMS, transfer, ElevenLabs, Mapbox, or dashboard map behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildAITraceSummary.test.ts`.
+- Covered:
+  - honest unavailable state with missing session/trace data
+  - rendering available recommendation/escalation/confidence values
+  - safe handling of empty missing/collected fields
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 17 can begin by adding the tool/action timeline.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should build a chronological timeline using available incident/session/audit/trace data. It should not implement SMS/transfer UI polish, GeoOps cluster-source display, multilingual UI, or backend behavior changes.
 
 ---
 
