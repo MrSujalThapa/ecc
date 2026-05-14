@@ -857,51 +857,98 @@ Phase 12 can begin by building a deterministic operator assignment engine.
 Next phase should focus on operator assignment logic only. Do not implement GeoOps persistence, dashboard UI, SMS sending changes, Mapbox MCP changes, transfer bridge behavior, or multilingual polish yet.
 
 ---
-## Phase 12 — Build Operator Assignment Engine
+## Phase 12 ? Build Operator Assignment Engine
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
-Deterministic assignment recommendations: no preemption, free operator selection, priority ordering—unit-tested.
+Deterministic assignment recommendations: no preemption, free operator selection, priority ordering?unit-tested.
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added a pure deterministic operator assignment engine with no runtime wiring or side effects.
+- [x] Added focused unit tests covering eligibility, ranking, tie-breaks, and assignment rationale.
 
 ### Files Changed
+
+- `lib/dispatch/operatorAssignmentEngine.ts`
+- `lib/dispatch/operatorAssignmentEngine.test.ts`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 12 is completed and not yet verified.
+
+- Added a pure deterministic Operator Assignment Agent Core.
+- The engine takes incidents, operator states, and optional `now`.
+- The engine returns:
+  - assignments
+  - queued_incidents
+  - unchanged_busy_operators
+  - ineligible_incidents
+- It assigns only free operators.
+- It never interrupts busy operators.
+- It ignores offline operators.
+- It skips resolved/abandoned incidents.
+- It skips already-assigned incidents.
+- It skips non-operator-required incidents.
+- It ranks eligible incidents deterministically by urgency, operator-required status, transfer-pending state, existing priority_score, wait time, and location confidence.
+- Assignment results include stable human-readable reasons.
+- Tie-breaking is deterministic by score, age, then incident id.
+- No runtime wiring was added.
+- No transfer was triggered.
+- No Twilio, ElevenLabs, SMS, Mapbox MCP, GeoOps, dashboard UI, or multilingual behavior changed.
+
+### Tests
+
+- Added `lib/dispatch/operatorAssignmentEngine.test.ts`.
+- Covered:
+  - one free operator gets the top incident
+  - busy operators are not interrupted
+  - offline operators are ignored
+  - already-assigned incidents are skipped
+  - resolved/abandoned incidents are skipped
+  - non-operator-required incidents are skipped
+  - multiple free operators get top-ranked incidents in order
+  - no eligible incidents returns no assignments
+  - wait-time tie-break and assignment reasons are deterministic
+
+Command results:
+
+- `npm run build` ? passed.
+- `npm run test:run` ? passed, `131` tests across `17` files.
+- `npm run lint` ? passed, `0` errors and `6` pre-existing unrelated warnings in:
+  - `app/api/twilio/dial-result/route.ts`
+  - `components/map/CommandMap.tsx`
+  - `lib/ai/toolResults.ts`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 13 can begin by connecting transfer recommendation to the operator assignment engine without triggering unsafe automatic transfer behavior.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should wire runtime transfer recommendation to assignment recommendation. It should not implement Mapbox MCP changes, GeoOps persistence, dashboard UI, SMS changes, or multilingual polish.
 
 ---
-
 ## Phase 13 — Connect Transfer Recommendation to Assignment Logic
 
 **Status:** Not Started  
