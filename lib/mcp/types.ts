@@ -34,13 +34,14 @@ export type MapboxMcpToolCallSuccess = {
   source: "mapbox_mcp";
   toolName: string;
   content: unknown;
-  raw: null;
+  raw: unknown;
 };
 
 export type MapboxMcpToolCallFailureCode =
   | "disabled"
   | "not_configured"
-  | "not_implemented";
+  | "upstream_error"
+  | "invalid_response";
 
 export type MapboxMcpToolCallFailure = {
   ok: false;
@@ -48,12 +49,14 @@ export type MapboxMcpToolCallFailure = {
   toolName: string;
   code: MapboxMcpToolCallFailureCode;
   message: string;
-  raw: null;
+  raw: unknown;
 };
 
 export type MapboxMcpToolCallResult =
   | MapboxMcpToolCallSuccess
   | MapboxMcpToolCallFailure;
+
+export type MapboxMcpFetch = typeof fetch;
 
 export type MapboxMcpClient = {
   getConfig: () => MapboxMcpConfig;

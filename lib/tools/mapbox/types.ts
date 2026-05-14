@@ -28,3 +28,26 @@ export type MapboxToolAdapterResult<T = unknown> = {
 
 export type MapboxGeocodeAdapterResult =
   MapboxToolAdapterResult<GeocodeLocationData>;
+
+export type MapboxGeocodeAdapterInput = {
+  location_text: string;
+  city_context?: string | null;
+  country_context?: string | null;
+};
+
+export type MapboxGeocodeAdapterStatus =
+  | "success"
+  | "error"
+  | "unavailable";
+
+export type MapboxGeocodeAdapterResultV2 = {
+  status: MapboxGeocodeAdapterStatus;
+  source: "mapbox_mcp";
+  query: string;
+  coordinates?: { lng: number; lat: number };
+  place_name?: string;
+  confidence?: number;
+  provider_place_id?: string | null;
+  raw?: unknown;
+  error?: string;
+};
