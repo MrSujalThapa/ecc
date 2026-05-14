@@ -114,6 +114,7 @@ export function DashboardShell() {
   /** Avoid TopBar hydration mismatch: SSR + first client paint must agree before tying disabled to async loadState. */
   const [clientMounted, setClientMounted] = useState(false);
   const selectionRef = useRef<string | null>(null);
+  const realtimeBootstrappedRef = useRef(false);
 
   const incidentDataSource = useMemo(
     () =>
@@ -177,19 +178,11 @@ export function DashboardShell() {
   }, []);
 
   useEffect(() => {
-    // When `subscribeToIncidents` exists, that path already bootstraps from Supabase.
-    // Running `getInitialIncidents()` in parallel can finish later with a different source
-    // (e.g. API / in-memory dev list after a thrown client fetch) and overwrite the live
-    // feed, so the queue shows more incidents than rows in `public.incidents`.
-    if (incidentDataSource.subscribeToIncidents) {
-      return;
-    }
-
     let ignore = false;
 
     const run = async () => {
       const result = await incidentDataSource.getInitialIncidents();
-      if (ignore) {
+      if (ignore || realtimeBootstrappedRef.current) {
         return;
       }
       applyIncidentFeedResult(
@@ -254,6 +247,7 @@ export function DashboardShell() {
     try {
       unsubscribe = incidentDataSource.subscribeToIncidents(
         (nextIncidents) => {
+          realtimeBootstrappedRef.current = true;
           startTransition(() => {
             setIncidents(nextIncidents);
             setUsingFallback(false);

@@ -10,8 +10,10 @@ export type IncidentFeedResult = {
 };
 
 export type IncidentDataSource = {
+  /** Required bootstrap path for initial dashboard hydration. */
   getInitialIncidents(): Promise<IncidentFeedResult>;
   refreshIncidents(): Promise<IncidentFeedResult>;
+  /** Optional realtime enhancement; not a guarantee that bootstrap data has loaded. */
   subscribeToIncidents?: (
     onChange: (incidents: Incident[]) => void,
     onError?: (error: Error) => void,
