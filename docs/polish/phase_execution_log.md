@@ -107,11 +107,11 @@ Next contributor should start Phase 2 using the Phase 2 Ready-to-Paste Prompt in
 
 ## Phase 2 — Define Emergency Runtime Contracts
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -119,34 +119,48 @@ Define the shape of runtime outputs (`EmergencyTurnResult`, `RuntimeAction`, `Tr
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Phase 2 was completed as a docs-only contract reconciliation pass.
+- [x] Updated `docs/polish/master_project_plan.md` Appendix A / contract reference and defined canonical contract expectations for `EmergencyTurnResult`, `RuntimeAction`, `TriageTrace`, `ToolResult`, `TransferRecommendation`, `OperatorAssignmentResult`, and `AgentTraceView`.
 
 ### Files Changed
+
+- `docs/polish/master_project_plan.md`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
 
 ### Result
 
-Not started.
+Phase 2 is completed as a markdown-only documentation pass and is not yet verified.
+
+- Updated `docs/polish/master_project_plan.md` Appendix A into a concrete Phase 2 contract reference.
+- Defined canonical contract expectations for `EmergencyTurnResult`, `RuntimeAction`, `TriageTrace`, `ToolResult`, `TransferRecommendation`, `OperatorAssignmentResult`, and `AgentTraceView`.
+- Treated existing `TriageTrace` in `lib/types/api.ts` and existing `ToolResult` in `lib/ai/toolResults.ts` as implementation baselines.
+- Did not add any TypeScript files.
+- Did not change runtime behavior.
+- Did not touch ElevenLabs, Mapbox MCP, transfer logic, GeoOps, dashboard UI, or SMS.
+
+Build/test/lint not run because Phase 2 only changed markdown documentation and did not modify application code.
 
 ### Issues / Blockers
 
-None yet.
+- `docs/codebase_implementation_audit.md` is missing in this checkout; future contributors should sync it if needed.
+- No blocker for Phase 3.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 3 can begin by creating `lib/runtime/runEmergencyTurn.ts` as a wrapper around existing `repositoryCallTurn` without changing behavior.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next contributor should start Phase 3 using the contracts in `docs/polish/master_project_plan.md` and must not refactor ElevenLabs behavior yet.
 
 ---
 
