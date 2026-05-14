@@ -1303,11 +1303,11 @@ Next phase should focus on operator-facing SMS/transfer status clarity. It shoul
 
 ## Phase 18 — Improve SMS and Transfer UI States
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1315,34 +1315,71 @@ Operator UI shows caller phone, SMS recipient, sent/stub/error state, transfer r
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added pure `buildSmsStatusView()` and `buildTransferStatusView()` helpers in `buildOperatorCommStatus`.
+- [x] Wired `activeCallSession` from `IncidentDrawer` into `CallControlPanel` and surfaced SMS/transfer status in the UI.
 
 ### Files Changed
 
+- `components/voice/CallControlPanel.tsx`
+- `components/incidents/IncidentDrawer.tsx`
+- `lib/dashboard/buildOperatorCommStatus.ts`
+- `lib/dashboard/buildOperatorCommStatus.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 152 tests across 21 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added pure `buildSmsStatusView()` and `buildTransferStatusView()` helpers.
+- `CallControlPanel` now accepts `activeCallSession`.
+- `IncidentDrawer` now passes `activeCallSession` into `CallControlPanel`.
+- Operators can now see whether caller phone / SMS recipient data is available.
+- SMS state is now shown clearly:
+  - ready to send
+  - missing recipient
+  - sent
+  - not sent / provider unavailable
+  - error
+- Transfer/escalation state is now shown clearly from existing incident/session data:
+  - operator required / not required / unknown
+  - escalation flagged / not flagged / unavailable
+  - no active transfer
+  - requested
+  - in progress
+  - completed
+  - failed
+- Last SMS outcome is stored locally for honest status rendering.
+- UI does not imply actual transfer execution unless session status indicates it.
+- No backend SMS behavior changed.
+- No backend transfer behavior changed.
+- No triage/runtime, ElevenLabs, Mapbox MCP, GeoOps, or multilingual behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildOperatorCommStatus.test.ts`.
+- Covered:
+  - missing recipient
+  - sent
+  - stub/not sent
+  - error
+  - honest transfer-state mapping
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 19 can begin by showing backend GeoOps cluster source in the dashboard/map/cluster UI.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on making backend GeoOps cluster provenance visible. It should not change SMS/transfer behavior, multilingual UI, or backend runtime behavior.
 
 ---
 
