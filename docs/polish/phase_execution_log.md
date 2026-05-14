@@ -239,11 +239,11 @@ Next phase should only rewire `/api/call/turn` to use the wrapper. It should not
 
 ## Phase 4 — Route /api/call/turn Through Runtime
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -251,34 +251,56 @@ Make `POST /api/call/turn` invoke `runEmergencyTurn()` while preserving response
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Updated `app/api/call/turn/route.ts`.
+- [x] Replaced the direct `repositoryCallTurn` route call with `runEmergencyTurn()` while preserving the existing `CallTurnResponse` payload shape.
 
 ### Files Changed
+
+- `app/api/call/turn/route.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 4 is completed and not yet verified.
+
+- Updated `app/api/call/turn/route.ts`.
+- Replaced direct `repositoryCallTurn` import with `runEmergencyTurn`.
+- Changed the single route call from `await repositoryCallTurn(parsed.data)` to `await runEmergencyTurn(parsed.data)`.
+- Preserved request parsing, validation, debug logging, error handling, and existing `CallTurnResponse` payload shape.
+- Did not expose wrapper-only additive fields.
+- Did not change ElevenLabs webhook, `repositoryCallTurn`, triage behavior, Mapbox MCP, transfer logic, GeoOps, dashboard UI, or SMS.
+
+Command results:
+
+- `git status`: completed successfully.
+- `git diff --stat`: completed successfully.
+- `npm run build`: failed before running the build because PowerShell blocked `C:\Program Files\nodejs\npm.ps1` (`PSSecurityException`: file is not digitally signed).
+- `npm run test:run`: failed for the same PowerShell execution policy reason before running tests.
+- `npm run lint`: failed for the same PowerShell execution policy reason before running lint.
 
 ### Issues / Blockers
 
-None yet.
+- `npm run build`, `npm run test:run`, and `npm run lint` did not execute because PowerShell blocked `npm.ps1` with `PSSecurityException` (`File C:\Program Files\nodejs\npm.ps1 cannot be loaded. The file is not digitally signed.`).
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 5 can begin by routing the ElevenLabs `llm_turn` path through `runEmergencyTurn()` so the caller hears validated `say_to_caller`.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus only on fixing the ElevenLabs split-brain path. It should not implement Mapbox MCP, SMS, transfer assignment, GeoOps, or dashboard UI changes yet.
 
 ---
 
