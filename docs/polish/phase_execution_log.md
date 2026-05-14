@@ -33,11 +33,11 @@ Sequential work on branch **`polish/full-agent-runtime-polish`** only (unless te
 
 ## Phase 1 — Create Polish Docs and Contracts
 
-**Status:** Not Started  
-**Owner:** Unassigned  
-**Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Status:** Completed  
+**Owner:** Sujal / current contributor  
+**Branch:** `polish/full-agent-runtime-polish`  
+**Started:** 2026-05-12  
+**Completed:** 2026-05-12
 
 ### Goal
 
@@ -45,48 +45,73 @@ Create the docs structure and shared contracts outline for the polish sprint (`d
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Created `docs/polish/master_project_plan.md`
+- [x] Created `docs/polish/phase_execution_log.md`
+- [x] Added the 21-phase ECC Agent Runtime Polish Master Plan
+- [x] Added branching/collaboration rules for `main`, `polish-integration`, and `polish/full-agent-runtime-polish`
+- [x] Added Cursor/Codex rules
+- [x] Added verification rules
+- [x] Added shared-file caution list
+- [x] Added initial contract outlines (Appendix A) in the master plan
+- [x] Added execution-log templates for all 21 phases
+- [x] Created `docs/polish/cursor_phase_prompts.md` (ready-to-paste Cursor prompts for future contributors)
 
 ### Files Changed
 
-_(none yet)_
+- `docs/polish/master_project_plan.md` (new)
+- `docs/polish/phase_execution_log.md` (new)
+- `docs/polish/cursor_phase_prompts.md` (new)
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
+
+Output (post-commit sanity check on contributor machine):
+
+```
+On branch polish/full-agent-runtime-polish
+Your branch is up to date with 'origin/polish/full-agent-runtime-polish'.
+
+nothing to commit, working tree clean
+```
+
+(`git diff --stat` produced no output — clean tree.)
+
+**Note:** Phase 1 verification is documentation-only per `docs/polish/master_project_plan.md` (§7 Phase 1). Full `npm run build` / `npm run test:run` / `npm run lint` cycle applies starting after substantive implementation phases; run before marking later phases **Verified**.
 
 ### Result
 
-Not started.
+Created the master plan, execution log, and Cursor prompt guide. Future contributors can now follow the execution log, read the master plan, and copy the next phase prompt from `docs/polish/cursor_phase_prompts.md`.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+None. Phase 2 can begin.
 
 ### Commit Hashes
 
-_(none)_
+- `fd3db50` — `phase 1.1: add polish sprint docs` (initial `docs/polish/*` scaffold)
+- _(add hash after commit)_ — `docs: update phase 1 execution log` (mark Phase 1 **Completed**)
 
 ### Handoff Notes
 
-None yet.
+Next contributor should start Phase 2 using the Phase 2 Ready-to-Paste Prompt in `docs/polish/cursor_phase_prompts.md`.
 
 ---
 
 ## Phase 2 — Define Emergency Runtime Contracts
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -94,44 +119,58 @@ Define the shape of runtime outputs (`EmergencyTurnResult`, `RuntimeAction`, `Tr
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Phase 2 was completed as a docs-only contract reconciliation pass.
+- [x] Updated `docs/polish/master_project_plan.md` Appendix A / contract reference and defined canonical contract expectations for `EmergencyTurnResult`, `RuntimeAction`, `TriageTrace`, `ToolResult`, `TransferRecommendation`, `OperatorAssignmentResult`, and `AgentTraceView`.
 
 ### Files Changed
+
+- `docs/polish/master_project_plan.md`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
 
 ### Result
 
-Not started.
+Phase 2 is completed as a markdown-only documentation pass and is not yet verified.
+
+- Updated `docs/polish/master_project_plan.md` Appendix A into a concrete Phase 2 contract reference.
+- Defined canonical contract expectations for `EmergencyTurnResult`, `RuntimeAction`, `TriageTrace`, `ToolResult`, `TransferRecommendation`, `OperatorAssignmentResult`, and `AgentTraceView`.
+- Treated existing `TriageTrace` in `lib/types/api.ts` and existing `ToolResult` in `lib/ai/toolResults.ts` as implementation baselines.
+- Did not add any TypeScript files.
+- Did not change runtime behavior.
+- Did not touch ElevenLabs, Mapbox MCP, transfer logic, GeoOps, dashboard UI, or SMS.
+
+Build/test/lint not run because Phase 2 only changed markdown documentation and did not modify application code.
 
 ### Issues / Blockers
 
-None yet.
+- `docs/codebase_implementation_audit.md` is missing in this checkout; future contributors should sync it if needed.
+- No blocker for Phase 3.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 3 can begin by creating `lib/runtime/runEmergencyTurn.ts` as a wrapper around existing `repositoryCallTurn` without changing behavior.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next contributor should start Phase 3 using the contracts in `docs/polish/master_project_plan.md` and must not refactor ElevenLabs behavior yet.
 
 ---
 
 ## Phase 3 — Create runEmergencyTurn() Runtime Wrapper
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -139,44 +178,72 @@ Add `lib/runtime/runEmergencyTurn.ts` as a central wrapper initially delegating 
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `lib/runtime/runEmergencyTurn.ts`.
+- [x] Added a self-contained `runEmergencyTurn(input)` wrapper around `repositoryCallTurn(input)` without rewiring any routes.
 
 ### Files Changed
+
+- `lib/runtime/runEmergencyTurn.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
 ```
 
 ### Result
 
-Not started.
+Phase 3 is completed and not yet verified.
+
+- Added `lib/runtime/runEmergencyTurn.ts`.
+- Added a self-contained `runEmergencyTurn(input)` wrapper around `repositoryCallTurn(input)`.
+- The wrapper calls `repositoryCallTurn` exactly once.
+- No custom error handling was added, so repository errors propagate unchanged.
+- Current repository result fields are preserved unchanged:
+  - `say_to_caller`
+  - `incident`
+  - `call_session`
+  - `transcript_event`
+  - `actions`
+  - `triage_trace`
+- Additive wrapper fields were added:
+  - `incident_id`
+  - `call_session_id`
+  - `transfer_recommendation: null`
+  - `operator_assignment: null`
+  - `agent_trace_view: null`
+  - `validation_warnings: []`
+- No routes were rewired.
+- `/api/call/turn` was not changed.
+- ElevenLabs webhook was not changed.
+- `repositoryCallTurn` was not changed.
+- No runtime behavior changed because the wrapper is not used by existing routes yet.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 4 can route `/api/call/turn` through `runEmergencyTurn()` while preserving the existing response shape.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should only rewire `/api/call/turn` to use the wrapper. It should not touch ElevenLabs yet; that belongs to Phase 5.
 
 ---
 
 ## Phase 4 — Route /api/call/turn Through Runtime
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -184,44 +251,66 @@ Make `POST /api/call/turn` invoke `runEmergencyTurn()` while preserving response
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Updated `app/api/call/turn/route.ts`.
+- [x] Replaced the direct `repositoryCallTurn` route call with `runEmergencyTurn()` while preserving the existing `CallTurnResponse` payload shape.
 
 ### Files Changed
+
+- `app/api/call/turn/route.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 4 is completed and not yet verified.
+
+- Updated `app/api/call/turn/route.ts`.
+- Replaced direct `repositoryCallTurn` import with `runEmergencyTurn`.
+- Changed the single route call from `await repositoryCallTurn(parsed.data)` to `await runEmergencyTurn(parsed.data)`.
+- Preserved request parsing, validation, debug logging, error handling, and existing `CallTurnResponse` payload shape.
+- Did not expose wrapper-only additive fields.
+- Did not change ElevenLabs webhook, `repositoryCallTurn`, triage behavior, Mapbox MCP, transfer logic, GeoOps, dashboard UI, or SMS.
+
+Command results:
+
+- `git status`: completed successfully.
+- `git diff --stat`: completed successfully.
+- `npm run build`: failed before running the build because PowerShell blocked `C:\Program Files\nodejs\npm.ps1` (`PSSecurityException`: file is not digitally signed).
+- `npm run test:run`: failed for the same PowerShell execution policy reason before running tests.
+- `npm run lint`: failed for the same PowerShell execution policy reason before running lint.
 
 ### Issues / Blockers
 
-None yet.
+- `npm run build`, `npm run test:run`, and `npm run lint` did not execute because PowerShell blocked `npm.ps1` with `PSSecurityException` (`File C:\Program Files\nodejs\npm.ps1 cannot be loaded. The file is not digitally signed.`).
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 5 can begin by routing the ElevenLabs `llm_turn` path through `runEmergencyTurn()` so the caller hears validated `say_to_caller`.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus only on fixing the ElevenLabs split-brain path. It should not implement Mapbox MCP, SMS, transfer assignment, GeoOps, or dashboard UI changes yet.
 
 ---
 
 ## Phase 5 — Fix ElevenLabs Split-Brain Voice Path
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -229,35 +318,65 @@ Make ElevenLabs `llm_turn` speak validated triage `say_to_caller` using the same
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Updated `app/api/elevenlabs/webhook/route.ts`.
+- [x] Rewired the normal ElevenLabs `llm_turn` success path to resolve IDs and call `await runEmergencyTurn(...)`.
 
 ### Files Changed
+
+- `app/api/elevenlabs/webhook/route.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 5 is completed and not yet verified.
+
+- Updated `app/api/elevenlabs/webhook/route.ts`.
+- The ElevenLabs `llm_turn` path now resolves incident/session IDs and calls `await runEmergencyTurn(...)`.
+- The spoken ElevenLabs response now comes from `runtimeResult.say_to_caller`.
+- The old normal-path split-brain behavior is removed: no normal-path `void repositoryCallTurn(...)` for `llm_turn`.
+- DB/dashboard updates and caller response now come from the same runtime result.
+- JSON/SSE response formatting remains through `buildLlmResponse(...)`.
+- Transcript and post-call webhook branches were left unchanged.
+- Fallback still exists only for exceptional cases:
+  - unresolved IDs
+  - `runEmergencyTurn()` failure
+  - Featherless emergency fallback failure then `voiceFallback(...)`
+- Did not change `repositoryCallTurn`, `runEmergencyTurn`, `/api/call/turn`, caller_phone, SMS, transfer bridge, Mapbox MCP, GeoOps, dashboard UI, or multilingual behavior.
+
+Command results:
+
+- `git status`: completed successfully; working tree clean after the Phase 5 changes.
+- `git diff --stat`: completed successfully.
+- `npm run build`: passed. Next.js production build completed successfully for `/api/elevenlabs/webhook` and the rest of the app. Warnings noted: inferred workspace root from multiple lockfiles and deprecated `middleware` file convention.
+- `npm run test:run`: passed. `9` test files and `87` tests passed.
+- `npm run lint`: passed with warnings only. `0` errors, `6` warnings:
+  - `app/api/twilio/dial-result/route.ts`: unused `buildTwimlConnectElevenLabs`
+  - `components/map/CommandMap.tsx`: unused `awaitingLocationCount`, `mappedResponderCount`, `modeLabel`, `modeTone`
+  - `lib/ai/toolResults.ts`: unused `GeoJsonGeometry`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 6 can begin by fixing the `caller_phone` lifecycle so SMS has a reliable default recipient for live calls.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
-
+Next phase should focus only on caller phone persistence and SMS recipient lookup reliability. It should not implement Mapbox MCP, operator assignment, GeoOps, dashboard AI trace, or multilingual polish.
 ---
 
 ## Phase 6 — Fix caller_phone Lifecycle for SMS
@@ -981,3 +1100,4 @@ None yet.
 ---
 
 *End of execution log template.*
+

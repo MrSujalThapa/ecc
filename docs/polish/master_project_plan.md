@@ -361,42 +361,118 @@ Expect merge churn / careful sequencing on:
 | **Verification requirement** | One end-to-end demo path executed twice by different readers following script without blockers. |
 
 ---
+## Appendix A — Phase 2 Runtime Contract Definitions
 
-## Appendix A â€” Initial Contract Sections (Phase 1 Draft)
+*This appendix is now the Phase 2 contract reference for emergency runtime outputs. It is intentionally docs-first: it defines the canonical shapes later phases should converge on without changing runtime behavior in Phase 2.*
 
-*Phase 2 refines names, fields, and TypeScript mirrors. This appendix is intentionally sketch-level.*
+**Repo-truth notes**
+
+- `docs/codebase_implementation_audit.md` is referenced by some polish instructions but is **not present in this checkout**. Phase 2 should rely on verified current-state docs that do exist, especially `docs/backend_architecture_current.md`, `docs/triage_agent_current_runtime.md`, and `docs/frontend_backend_dataflow.md`.
+- Existing code baselines should be treated as **current implementations**, not replaced in Phase 2:
+  - `TriageTrace` baseline: `lib/types/api.ts`
+  - `ToolResult` baseline: `lib/ai/toolResults.ts`
+- Contracts below are labeled as one of:
+  - **Current baseline** — already represented in code today
+  - **Future wrapper/projection** — docs-defined now, implemented in later phases
+  - **Advisory-only** — recommendation payloads only; no autonomous side effects
 
 ### A.1 `EmergencyTurnResult`
 
-- **Purpose:** Single return shape from `runEmergencyTurn` consumed by HTTP adapters ( `/api/call/turn`, ElevenLabs bridge ).
-- **Includes:** identifiers (`incident_id`, `call_session_id`), normalized **`say_to_caller`**, **`actions`**, **`triage_trace`**, optional **`transfer_recommendation`**, optional **`operator_assignment`**, **`validation_warnings`**.
-- **Non-goals:** Raw LLM strings beyond validated assistant payload.
+- **Classification:** Future wrapper/projection.
+- **Purpose:** Future normalized return shape from `runEmergencyTurn()` for transport adapters such as `/api/call/turn` and the later ElevenLabs bridge.
+- **Canonical contents:**
+  - identifiers: `incident_id`, `call_session_id`
+  - validated caller-facing reply: `say_to_caller`
+  - persisted entities or canonical persisted snapshots: `incident`, `call_session`, `transcript_event`
+  - backend-approved next-step directives: `actions`
+  - bounded runtime trace: `triage_trace`
+  - optional advisory recommendation objects: `transfer_recommendation`, `operator_assignment`
+  - non-fatal normalization or validation notes: `validation_warnings`
+- **Phase 2 rule:** Define only in docs; do not implement `runEmergencyTurn()` yet.
+- **Non-goals:** Raw LLM/provider text, unvalidated provider payloads, or direct side-effect execution results.
 
 ### A.2 `RuntimeAction`
 
-- **Purpose:** Serializable operator/agent directives produced by triage merge (e.g., escalate, SMS draft approval flags)â€”exact union TBD in Phase 2.
-- **Rule:** Must be schema-validated before execution side-effects.
+- **Classification:** Future wrapper/projection.
+- **Purpose:** Canonical serializable action union for backend-approved directives produced after triage merge and gating.
+- **Semantic boundary:** A `RuntimeAction` is **not** the raw provider output and **not** the side effect itself. It is the normalized directive that later runtime layers may validate, log, render, or execute.
+- **Examples of later action families:** operator escalation, transfer request, SMS draft approval path, call-session closure, no-op.
+- **Required properties:**
+  - stable action name / discriminant
+  - human/audit-readable reason
+  - optional structured args payload
+  - enough metadata to be logged before execution
+- **Phase 2 rule:** Action taxonomy is documented now, but no runtime rewiring or new execution path is introduced.
+- **Execution rule:** Any eventual runtime use must remain schema-validated before side effects occur.
 
 ### A.3 `TriageTrace`
 
-- **Purpose:** Bounded trace of passes, providers, tool requests/results summaries, validation outcomes.
-- **Align with:** existing `CallTurnResponse.triage_trace` patterns in `lib/types/api.ts` where possible.
+- **Classification:** Current baseline.
+- **Current baseline:** `lib/types/api.ts` already defines `TriageTrace` and `CallTurnResponse.triage_trace`.
+- **Purpose:** Bounded trace of runtime reasoning passes, provider selection/fallbacks, normalized tool requests/results, and validation/error outcomes for one emergency turn.
+- **Current baseline fields to preserve conceptually:**
+  - `passes`
+  - first-pass tool requests
+  - normalized tool requests
+  - tool results
+  - second-pass error
+  - requested provider
+  - pass 1 / pass 2 provider identities
+  - provider fallback error fields
+- **Phase 2 direction:** Treat the current `lib/types/api.ts` shape as the implementation baseline and document it as the convergence target for later runtime unification.
+- **Phase 2 non-goal:** Do not rename, replace, or migrate the existing TypeScript type in this phase.
 
 ### A.4 `ToolResult`
 
-- **Purpose:** Normalized tool execution envelope (name, input hash/redacted input, output, status, source=`mock|mcp|http`, latency_ms, error).
+- **Classification:** Current baseline.
+- **Current baseline:** `lib/ai/toolResults.ts` already defines the normalized execution envelope used by the bounded tool loop.
+- **Purpose:** Runtime-level normalized result for one backend-executed safe tool request.
+- **Current baseline semantics to preserve:**
+  - request correlation via `tool_request_id`
+  - tool identity
+  - success/failure via `ok`
+  - execution source
+  - typed `data` payload on success
+  - structured `error` payload on failure
+  - creation timestamp
+- **Phase 2 direction:** Keep the existing type as the code baseline and use this appendix to clarify how later phases should interpret it in traces, wrappers, and operator-safe views.
+- **Planned future enrichment (docs-only):** redacted input references, latency, or additional provenance may be layered later if needed, but Phase 2 does not move or duplicate the current type.
 
 ### A.5 `TransferRecommendation`
 
-- **Purpose:** `recommended: boolean`, `reason`, `urgency_threshold_met`, **opaque gate token / correlation id** for `transferGate`.
+- **Classification:** Advisory-only.
+- **Purpose:** Explicit structured recommendation payload describing whether transfer should be considered by later runtime layers.
+- **Canonical contents:**
+  - `recommended`
+  - human/audit-readable `reason`
+  - supporting decision flags such as urgency/location/gate prerequisites
+  - optional correlation or gate reference identifier for audit linkage
+- **Rule:** This object is advisory only. It does not trigger transfer by itself and must not bypass current transfer gate or telephony control paths.
+- **Phase 2 non-goal:** No changes to existing transfer logic, gate approval, ElevenLabs flow, or Twilio routing.
 
 ### A.6 `OperatorAssignmentResult`
 
-- **Purpose:** Recommended `operator_id` or null, ranking rationale code (enum), **no preemption** flag enforced.
+- **Classification:** Advisory-only.
+- **Purpose:** Future recommendation payload for suggesting which operator, if any, should handle a turn or incident next.
+- **Canonical contents:**
+  - recommended `operator_id` or `null`
+  - ranking / rationale code or summary
+  - confidence or tie-break metadata if later needed
+  - explicit no-preemption / no-autoreassign semantics
+- **Rule:** This contract must never imply automatic reassignment, forced takeover, or operator preemption in Phase 2.
+- **Phase 2 non-goal:** No operator assignment behavior changes, no dashboard wiring, and no staffing algorithm work.
 
 ### A.7 `AgentTraceView`
 
-- **Purpose:** Dashboard-facing DTO (subset/redaction of `TriageTrace` + timeline anchors) for Phase 16â€“17 UI.
+- **Classification:** Future wrapper/projection.
+- **Purpose:** Dashboard-safe or operator-safe projection of deeper runtime trace data for later UI phases.
+- **Canonical contents:**
+  - redacted summary of `TriageTrace`
+  - timeline anchors or event ordering fields
+  - provider/tool summary fields suitable for UI
+  - omission of backend-only sensitive detail that belongs in audit logs
+- **Rule:** This is a view DTO, not the audit log schema and not the full internal trace object.
+- **Phase 2 non-goal:** No dashboard UI work, no realtime view wiring, and no audit-log schema change.
 
 ---
 

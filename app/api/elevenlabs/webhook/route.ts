@@ -29,6 +29,7 @@
 
 import { NextResponse } from "next/server";
 import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
+import { runEmergencyTurn } from "@/lib/runtime/runEmergencyTurn";
 import { resolveCallerPhoneJsonOrTwilio } from "@/lib/voice/callerPhoneResolution";
 import {
   parseElevenLabsEvent,
@@ -644,8 +645,45 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     };
 
     let sayToCaller: string;
-    let voiceReplyProvider: "featherless" | "fallback" = "featherless";
+    let voiceReplyProvider: "runtime" | "featherless_fallback" | "fallback" = "runtime";
     let shouldEnd = false;
+    let runtimeResult: Awaited<ReturnType<typeof runEmergencyTurn>> | null = null;
+
+    // Build the full conversation history (user + assistant) from the ElevenLabs message list.
+    // Exclude the very last message (the current caller turn — passed separately as latestText).
+    const conversationMessages = event.messages
+      .filter((m) => (m.role === "user" || m.role === "assistant") && (m.content ?? "").trim())
+      .slice(0, -1)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content ?? "" }));
+
+    const turnSessionKey = sessionLookupKey ?? conversationId ?? twilioCallSid ?? resolvedIncidentId;
+
+    const runEmergencyVoiceFallback = async (reason: string): Promise<string> => {
+      console.warn(`[elevenlabs/webhook] ${reason} -- trying Featherless emergency fallback`);
+      try {
+        const fallbackText = await Promise.race([
+          generateVoiceReplyViaFeatherless(
+            conversationMessages,
+            reasoningText,
+            translated.language,
+            cachedTriageState
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("voice_timeout")), 8000)
+          ),
+        ]);
+        voiceReplyProvider = "featherless_fallback";
+        return fallbackText;
+      } catch (fallbackError) {
+        const fallbackReason =
+          fallbackError instanceof Error ? fallbackError.message : "unknown";
+        voiceReplyProvider = "fallback";
+        console.warn(
+          `[elevenlabs/webhook] Featherless emergency fallback failed (${fallbackReason}) -- using context fallback`
+        );
+        return voiceFallback(fullContext, turnNumber, translated.language ?? null);
+      }
+    };
 
     // Detect explicit caller transfer request BEFORE calling Featherless.
     const TRANSFER_RE = /\b(transfer|forward(?: my call| the call| me)?|connect me|speak to (a |an |)(human|operator|person|agent|someone)|talk to (a |an |)(human|operator|person|agent|someone)|real person|live (agent|person|operator)|put me through|non-emergency line|non emergency line)\b/i;
@@ -670,55 +708,60 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     const shouldTransfer = callerIsAskingForTransfer || autoTransferNonEmergency;
 
     if (shouldTransfer) {
-      sayToCaller = autoTransferNonEmergency
-        ? "I'll connect you to the non-emergency line now. An officer will follow up. Please hold."
-        : "I'll connect you to an operator now. Please hold the line.";
       const reason = autoTransferNonEmergency
         ? `non-emergency auto-transfer (turn ${substantiveUserMsgs.length}, triage complete)`
         : `caller requested (${transferRequestCount} request(s))`;
       console.info(`[elevenlabs/webhook] Transfer triggered — ${reason}`);
-    } else
+    }
 
-    try {
-      // Build the full conversation history (user + assistant) from the ElevenLabs message list.
-      // Exclude the very last message (the current caller turn — passed separately as latestText).
-      // This gives Featherless full context of what the agent already said so it never repeats.
-      const conversationMessages = event.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && (m.content ?? "").trim())
-        .slice(0, -1)
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content ?? "" }));
+    voiceDebug("before-ai", {
+      route: "/api/elevenlabs/webhook",
+      path: "custom_llm_voice_reply",
+      latestTranscript: shortText(reasoningText),
+      incident_id: resolvedIncidentId,
+      call_session_id: resolvedCallSessionId,
+      ...voiceStateDebugFields(
+        cachedTriageState,
+        Math.max(conversationMessages.length, recentHistoryFor(cachedTriageState).length)
+      ),
+      provider: "runtime",
+    });
 
-      voiceDebug("before-ai", {
-        route: "/api/elevenlabs/webhook",
-        path: "custom_llm_voice_reply",
-        latestTranscript: shortText(reasoningText),
-        incident_id: resolvedIncidentId,
-        call_session_id: resolvedCallSessionId,
-        ...voiceStateDebugFields(
-          cachedTriageState,
-          Math.max(conversationMessages.length, recentHistoryFor(cachedTriageState).length)
-        ),
-        provider: "featherless",
-      });
+    const runtimeIds = isNewCall
+      ? await realIdsReady
+      : resolvedIncidentId && resolvedCallSessionId
+        ? {
+            incident_id: resolvedIncidentId,
+            call_session_id: resolvedCallSessionId,
+          }
+        : null;
 
-      console.info(
-        `[elevenlabs/webhook] Featherless context: ${conversationMessages.length} prior turns, lang=${translated.language ?? "en"}`
+    if (!runtimeIds) {
+      sayToCaller = await runEmergencyVoiceFallback(
+        "Unable to resolve incident/session IDs for llm_turn"
       );
-
-      // Direct Featherless call with full conversation context and cached incident state.
-      sayToCaller = await Promise.race([
-        generateVoiceReplyViaFeatherless(conversationMessages, reasoningText, translated.language, cachedTriageState),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("voice_timeout")), 8000)
-        ),
-      ]);
-
-      console.info(`[elevenlabs/webhook] Featherless voice reply (${sayToCaller.length} chars)`);
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "unknown";
-      voiceReplyProvider = "fallback";
-      console.warn(`[elevenlabs/webhook] Featherless ${reason === "voice_timeout" ? "timed out (>8s)" : "error: " + reason} -- using context fallback`);
-      sayToCaller = voiceFallback(fullContext, turnNumber, translated.language ?? null);
+    } else {
+      try {
+        runtimeResult = await runEmergencyTurn({
+          incident_id: runtimeIds.incident_id,
+          call_session_id: runtimeIds.call_session_id,
+          speaker: "caller",
+          text: latestUserText,
+          is_final: true,
+          source: VOICE_SOURCE_LABEL,
+          language: translated.language,
+          translated_text: translated.translated_text,
+        });
+        sayToCaller = runtimeResult.say_to_caller ?? SAFE_FALLBACK_PHRASE;
+        shouldEnd =
+          runtimeResult.actions.some((action) => action.action === "close_call_session") ||
+          runtimeResult.call_session.status === "closed";
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : "unknown";
+        sayToCaller = await runEmergencyVoiceFallback(
+          `runEmergencyTurn failed (${reason})`
+        );
+      }
     }
 
     // ---------------------------------------------------------------------------
@@ -750,28 +793,41 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       path: "custom_llm_voice_reply",
       say_to_caller: shortText(sayToCaller),
       provider: voiceReplyProvider,
-      transcriptHistoryLength: recentHistoryFor(cachedTriageState).length,
-      urgency: cachedTriageState?.urgency ?? null,
-      summary: shortText(cachedTriageState?.summary),
-      next_question: shortText(cachedTriageState?.next_question),
-      last_question: shortText(cachedTriageState?.last_question),
-      missing_fields: cachedTriageState?.missing_fields ?? null,
-      collected_fields_keys: summarizeKeys(cachedTriageState?.collected_fields),
-      operator_required: cachedTriageState?.operator_required ?? null,
-      should_escalate: cachedTriageState?.should_escalate ?? null,
-      incident_patch_urgency: null,
-      incident_patch_incident_type: null,
-      incident_patch_location: null,
-      incident_patch_missing_fields: null,
-      call_session_patch_next_question: null,
-      call_session_patch_should_escalate: null,
-      system_actions: [],
-      tool_requests: [],
+      transcriptHistoryLength: runtimeResult
+        ? turnSessionKey
+          ? recentHistoryFor(
+              getSessionByElevenLabsId(turnSessionKey)?.triage_state ??
+                getSessionByTwilioSid(turnSessionKey)?.triage_state
+            ).length
+          : null
+        : recentHistoryFor(cachedTriageState).length,
+      urgency: runtimeResult?.incident.urgency ?? cachedTriageState?.urgency ?? null,
+      summary: shortText(runtimeResult?.incident.summary ?? cachedTriageState?.summary),
+      next_question: shortText(runtimeResult?.call_session.next_question ?? cachedTriageState?.next_question),
+      last_question: shortText(
+        runtimeResult
+          ? lastQuestionFrom(runtimeResult.say_to_caller, runtimeResult.call_session.next_question)
+          : cachedTriageState?.last_question
+      ),
+      missing_fields: runtimeResult?.incident.missing_fields ?? cachedTriageState?.missing_fields ?? null,
+      collected_fields_keys: summarizeKeys(
+        (runtimeResult?.incident.collected_fields as Record<string, string> | null | undefined) ??
+          cachedTriageState?.collected_fields
+      ),
+      operator_required: runtimeResult?.incident.operator_required ?? cachedTriageState?.operator_required ?? null,
+      should_escalate: runtimeResult?.call_session.should_escalate ?? cachedTriageState?.should_escalate ?? null,
+      incident_patch_urgency: runtimeResult?.incident.urgency ?? null,
+      incident_patch_incident_type: runtimeResult?.incident.incident_type ?? null,
+      incident_patch_location: runtimeResult?.incident.location ?? null,
+      incident_patch_missing_fields: runtimeResult?.incident.missing_fields ?? null,
+      call_session_patch_next_question: runtimeResult?.call_session.next_question ?? null,
+      call_session_patch_should_escalate: runtimeResult?.call_session.should_escalate ?? null,
+      system_actions: runtimeResult?.actions.map((action) => action.action) ?? [],
+      tool_requests: runtimeResult?.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
     });
 
-    // Persist immediate voice memory before the async repository turn finishes,
-    // so fast follow-up turns still see what was just asked.
-    const turnSessionKey = sessionLookupKey ?? conversationId ?? twilioCallSid ?? resolvedIncidentId;
+    // Persist immediate voice memory after the runtime turn completes so fast
+    // follow-up turns see the validated backend response.
     const nowIso = new Date().toISOString();
     if (turnSessionKey) {
       patchVoiceTriageState(turnSessionKey, {
@@ -780,193 +836,74 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           { role: "ai", text: sayToCaller, created_at: nowIso },
         ],
         last_say_to_caller: sayToCaller,
-        last_question: lastQuestionFrom(sayToCaller),
+        last_question: runtimeResult
+          ? lastQuestionFrom(runtimeResult.say_to_caller, runtimeResult.call_session.next_question)
+          : lastQuestionFrom(sayToCaller),
         last_updated_at: nowIso,
-        // Mark transfer as requested immediately so subsequent turns don't re-trigger.
-        // voiceSessionStore preserves this and won't let backend "not_requested" clear it.
+        ...(runtimeResult
+          ? {
+              incident_type: runtimeResult.incident.incident_type ?? null,
+              urgency: runtimeResult.incident.urgency ?? null,
+              location: runtimeResult.incident.location ?? null,
+              location_status: runtimeResult.incident.location_status ?? null,
+              summary: runtimeResult.incident.summary ?? null,
+              status: runtimeResult.incident.status ?? null,
+              call_status: runtimeResult.call_session.status ?? null,
+              control_state: runtimeResult.incident.control_state ?? null,
+              ai_active:
+                runtimeResult.call_session.ai_active ?? runtimeResult.incident.ai_active ?? null,
+              operator_required: runtimeResult.incident.operator_required ?? null,
+              should_escalate: runtimeResult.call_session.should_escalate ?? null,
+              operator_transfer_status: runtimeResult.call_session.operator_transfer_status ?? null,
+              next_question: runtimeResult.call_session.next_question ?? null,
+              collected_fields:
+                (runtimeResult.incident.collected_fields as Record<string, string> | null) ?? null,
+              missing_fields: runtimeResult.incident.missing_fields ?? null,
+            }
+          : {}),
         ...(shouldTransfer ? { operator_transfer_status: "requested" as const } : {}),
       });
     }
 
-    // Persist transcript + incident update async -- cache triage state for next turn.
-    if (isNewCall) {
-      // Turn 1: capture transcript data now (closure), then wait for real Supabase
-      // IDs via realIdsReady. This handles both orderings:
-      //   - repositoryCallStart resolves before Featherless → waits for this code
-      //   - Featherless resolves before repositoryCallStart → waits for real IDs
-      const t1Text = latestUserText;
-      const t1Language = translated.language;
-      const t1TranslatedText = translated.translated_text;
-      const t1TriageKey = turnSessionKey;
-      void realIdsReady.then(async (realIds) => {
-        if (!realIds) return;
-        try {
-          voiceDebug("before-ai", {
-            route: "/api/elevenlabs/webhook",
-            path: "repositoryCallTurn_async_turn1",
-            latestTranscript: shortText(t1TranslatedText ?? t1Text),
-            transcriptHistoryLength: 0,
-            incident_id: realIds.incident_id,
-            call_session_id: realIds.call_session_id,
-            incident_type_before: null,
-            urgency_before: null,
-            location_before: null,
-            collected_fields_keys_before: [],
-            missing_fields_before: null,
-            previous_next_question: null,
-            provider: process.env.AI_PROVIDER ?? null,
-          });
-
-          const result = await repositoryCallTurn({
-            incident_id: realIds.incident_id,
-            call_session_id: realIds.call_session_id,
-            speaker: "caller",
-            text: t1Text,
-            is_final: true,
-            source: VOICE_SOURCE_LABEL,
-            language: t1Language,
-            translated_text: t1TranslatedText,
-          });
-          const inc = result.incident;
-          patchVoiceTriageState(t1TriageKey, {
-            incident_type: inc.incident_type ?? null,
-            urgency: inc.urgency ?? null,
-            location: inc.location ?? null,
-            location_status: inc.location_status ?? null,
-            summary: inc.summary ?? null,
-            status: inc.status ?? null,
-            call_status: result.call_session.status ?? null,
-            control_state: inc.control_state ?? null,
-            ai_active: result.call_session.ai_active ?? inc.ai_active ?? null,
-            operator_required: inc.operator_required ?? null,
-            should_escalate: result.call_session.should_escalate ?? null,
-            operator_transfer_status: result.call_session.operator_transfer_status ?? null,
-            next_question: result.call_session.next_question ?? null,
-            last_question: lastQuestionFrom(result.say_to_caller, result.call_session.next_question),
-            last_say_to_caller: result.say_to_caller,
-            collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
-            missing_fields: inc.missing_fields ?? null,
-            last_updated_at: new Date().toISOString(),
-          });
-          voiceDebug("after-merge", {
-            route: "/api/elevenlabs/webhook",
-            path: "repositoryCallTurn_async_turn1",
-            say_to_caller: shortText(result.say_to_caller),
-            transcriptHistoryLength: recentHistoryFor(getSessionByElevenLabsId(t1TriageKey)?.triage_state ?? getSessionByTwilioSid(t1TriageKey)?.triage_state).length,
-            incident_id: inc.id,
-            public_id: inc.public_id,
-            call_session_id: result.call_session.id,
-            incident_type: inc.incident_type,
-            urgency: inc.urgency,
-            summary: shortText(inc.summary),
-            status: inc.status,
-            control_state: inc.control_state,
-            location_status: inc.location_status,
-            operator_required: inc.operator_required,
-            location: shortText(inc.location, 100),
-            collected_fields_keys: summarizeKeys(inc.collected_fields),
-            missing_fields: inc.missing_fields,
-            next_question: shortText(result.call_session.next_question),
-            last_question: shortText(lastQuestionFrom(result.say_to_caller, result.call_session.next_question)),
-            should_escalate: result.call_session.should_escalate,
-            operator_transfer_status: result.call_session.operator_transfer_status,
-            system_actions: result.actions.map((action) => action.action),
-            tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
-            provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
-          });
-          console.info(
-            `[elevenlabs/webhook] Turn 1 saved: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"}`
-          );
-        } catch (e) {
-          console.error("[elevenlabs/webhook] Turn 1 save error:", e);
-        }
-      });
-    } else {
-      console.info(
-        `[elevenlabs/webhook] Turn 2+: saving with incident=${resolvedIncidentId} session=${resolvedCallSessionId}`
-      );
-      voiceDebug("before-ai", {
+    if (runtimeResult) {
+      const inc = runtimeResult.incident;
+      voiceDebug("after-merge", {
         route: "/api/elevenlabs/webhook",
-        path: "repositoryCallTurn_async_turn2_plus",
-        latestTranscript: shortText(translated.translated_text ?? latestUserText),
-        incident_id: resolvedIncidentId,
-        call_session_id: resolvedCallSessionId,
-        ...voiceStateDebugFields(
-          cachedTriageState,
-          Math.max(turnNumber, recentHistoryFor(cachedTriageState).length)
+        path: "runtime_llm_turn",
+        say_to_caller: shortText(runtimeResult.say_to_caller),
+        transcriptHistoryLength: turnSessionKey
+          ? recentHistoryFor(
+              getSessionByElevenLabsId(turnSessionKey)?.triage_state ??
+                getSessionByTwilioSid(turnSessionKey)?.triage_state
+            ).length
+          : null,
+        incident_id: inc.id,
+        public_id: inc.public_id,
+        call_session_id: runtimeResult.call_session.id,
+        incident_type: inc.incident_type,
+        urgency: inc.urgency,
+        summary: shortText(inc.summary),
+        status: inc.status,
+        control_state: inc.control_state,
+        location_status: inc.location_status,
+        operator_required: inc.operator_required,
+        location: shortText(inc.location, 100),
+        collected_fields_keys: summarizeKeys(inc.collected_fields),
+        missing_fields: inc.missing_fields,
+        next_question: shortText(runtimeResult.call_session.next_question),
+        last_question: shortText(
+          lastQuestionFrom(runtimeResult.say_to_caller, runtimeResult.call_session.next_question)
         ),
-        provider: process.env.AI_PROVIDER ?? null,
+        should_escalate: runtimeResult.call_session.should_escalate,
+        operator_transfer_status: runtimeResult.call_session.operator_transfer_status,
+        system_actions: runtimeResult.actions.map((action) => action.action),
+        tool_requests:
+          runtimeResult.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
+        provider:
+          runtimeResult.triage_trace?.pass2_provider ??
+          runtimeResult.triage_trace?.pass1_provider ??
+          null,
       });
-      void repositoryCallTurn({
-        incident_id: resolvedIncidentId,
-        call_session_id: resolvedCallSessionId,
-        speaker: "caller",
-        text: latestUserText,
-        is_final: true,
-        source: VOICE_SOURCE_LABEL,
-        language: translated.language,
-        translated_text: translated.translated_text,
-      }).then((result) => {
-        const inc = result.incident;
-        voiceDebug("after-merge", {
-          route: "/api/elevenlabs/webhook",
-          path: "repositoryCallTurn_async_turn2_plus",
-          say_to_caller: shortText(result.say_to_caller),
-          transcriptHistoryLength: turnSessionKey
-            ? recentHistoryFor(
-                getSessionByElevenLabsId(turnSessionKey)?.triage_state ??
-                  getSessionByTwilioSid(turnSessionKey)?.triage_state
-              ).length
-            : null,
-          incident_id: inc.id,
-          public_id: inc.public_id,
-          call_session_id: result.call_session.id,
-          incident_type: inc.incident_type,
-          urgency: inc.urgency,
-          summary: shortText(inc.summary),
-          status: inc.status,
-          control_state: inc.control_state,
-          location_status: inc.location_status,
-          operator_required: inc.operator_required,
-          location: shortText(inc.location, 100),
-          collected_fields_keys: summarizeKeys(inc.collected_fields),
-          missing_fields: inc.missing_fields,
-          next_question: shortText(result.call_session.next_question),
-          last_question: shortText(lastQuestionFrom(result.say_to_caller, result.call_session.next_question)),
-          should_escalate: result.call_session.should_escalate,
-          operator_transfer_status: result.call_session.operator_transfer_status,
-          system_actions: result.actions.map((action) => action.action),
-          tool_requests: result.triage_trace?.first_pass_tool_requests.map((request) => request.tool) ?? [],
-          provider: result.triage_trace?.pass2_provider ?? result.triage_trace?.pass1_provider ?? null,
-        });
-        if (turnSessionKey) {
-          patchVoiceTriageState(turnSessionKey, {
-            incident_type: inc.incident_type ?? null,
-            urgency: inc.urgency ?? null,
-            location: inc.location ?? null,
-            location_status: inc.location_status ?? null,
-            summary: inc.summary ?? null,
-            status: inc.status ?? null,
-            call_status: result.call_session.status ?? null,
-            control_state: inc.control_state ?? null,
-            ai_active: result.call_session.ai_active ?? inc.ai_active ?? null,
-            operator_required: inc.operator_required ?? null,
-            should_escalate: result.call_session.should_escalate ?? null,
-            operator_transfer_status: result.call_session.operator_transfer_status ?? null,
-            next_question: result.call_session.next_question ?? null,
-            last_question: lastQuestionFrom(result.say_to_caller, result.call_session.next_question),
-            last_say_to_caller: result.say_to_caller,
-            collected_fields: (inc.collected_fields as Record<string, string> | null) ?? null,
-            missing_fields: inc.missing_fields ?? null,
-            last_updated_at: new Date().toISOString(),
-          });
-          console.info(
-            `[elevenlabs/webhook] Triage state cached: type=${inc.incident_type ?? "?"} location=${inc.location ?? "?"} missing=${(inc.missing_fields ?? []).join(",") || "none"}`
-          );
-        }
-      }).catch((e) =>
-        console.error("[elevenlabs/webhook] async call/turn error:", e)
-      );
     }
 
     // Decide next voice action
