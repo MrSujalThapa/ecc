@@ -381,11 +381,11 @@ Next phase should focus only on caller phone persistence and SMS recipient looku
 
 ## Phase 6 â€” Fix caller_phone Lifecycle for SMS
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -393,35 +393,68 @@ Ensure live calls persist `caller_phone` when available so SMS default recipient
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Implemented targeted caller phone preservation across Twilio, voice session, ElevenLabs bootstrap, and SMS fallback lookup.
+- [x] Added focused tests for voice session caller phone preservation, caller phone resolution, and newest non-empty repository lookup behavior.
 
 ### Files Changed
+
+- `lib/voice/voiceSessionStore.ts`
+- `app/api/twilio/webhook/route.ts`
+- `app/api/call/start/route.ts`
+- `app/api/elevenlabs/webhook/route.ts`
+- `lib/db/call-repository.ts`
+- `app/api/operator/send-sms/route.ts`
+- `lib/voice/voiceSessionStore.test.ts`
+- `lib/voice/callerPhoneResolution.test.ts`
+- `lib/db/call-repository.test.ts`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 6 is completed and not yet verified.
+
+- `voiceSessionStore` now stores optional `caller_phone`.
+- `registerVoiceSession(...)` can store caller phone.
+- Caller phone patching fills missing phone values and does not overwrite known non-empty values.
+- Twilio inbound stores `From` in both `repositoryCallStart(...)` and the in-memory voice session.
+- `app/api/call/start` keeps the same caller phone precedence and logs unresolved phone cases more clearly.
+- ElevenLabs `llm_turn` inherits phone from linked Twilio-backed sessions and persists resolved phone during bootstrap.
+- `repositoryLatestCallerPhoneForIncident(...)` now returns the newest non-empty caller phone in both Supabase and demo-store paths.
+- `/api/operator/send-sms` logs fallback-miss cases without changing the response shape.
+
+### Tests
+
+- Added voice session preservation tests.
+- Added caller phone resolution tests.
+- Added repository coverage for newest non-empty caller phone behavior.
+
+Command results:
+
+- `npm run build` — passed.
+- `npm run test:run` — passed, `95` tests across `11` files.
+- `npm run lint` — passed with `0` errors and `6` existing warnings.
 
 ### Issues / Blockers
 
-None yet.
+- Live Twilio call still needs manual verification with a real caller number.
+- No blocker for Phase 7.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 7 can begin by wiring triage/runtime transfer recommendations without implementing full operator assignment or Mapbox MCP.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
-
+Next phase should focus only on making transfer recommendation visible/structured from triage/runtime output. Do not implement operator assignment, Mapbox MCP, GeoOps, dashboard AI trace, or multilingual polish yet.
 ---
 
 ## Phase 7 â€” Wire Triage Transfer Recommendation
@@ -1100,4 +1133,5 @@ None yet.
 ---
 
 *End of execution log template.*
+
 
