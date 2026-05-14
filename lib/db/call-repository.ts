@@ -1597,6 +1597,8 @@ const mapGeoOpsClustersToDomain = (
     summary: c.summary,
     top_recommended_action: c.top_recommended_action,
     incident_ids: [...c.incident_ids],
+    source: "backend_geoops",
+    priority_score: c.priority_score,
     center: { ...c.center },
   }));
 

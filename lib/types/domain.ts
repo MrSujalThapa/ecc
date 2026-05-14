@@ -134,6 +134,8 @@ export type SurgeCluster = {
   summary: string;
   top_recommended_action: string | null;
   incident_ids: string[];
+  source?: "backend_geoops" | "client_fallback";
+  priority_score?: number | null;
   /** Optional map hint — mock bbox or centroid is acceptable per plan. */
   center?: Coordinates | null;
 };

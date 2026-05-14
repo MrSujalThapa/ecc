@@ -442,7 +442,7 @@ describe("call-repository (in-memory / no Supabase)", () => {
   });
 
   describe("repositorySurgeAnalyze", () => {
-    it("clusters disaster cohort and persists cluster_id", async () => {
+    it("clusters disaster cohort, tags backend provenance, and persists cluster_id", async () => {
       await repositorySimulateDisaster({
         batch_size: 2,
         maxCap: 29,
@@ -455,6 +455,10 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.top_priority_incident_ids.length).toBe(2);
       expect(out.updated_incidents.length).toBe(2);
       expect(out.clusters.length).toBeGreaterThanOrEqual(1);
+      for (const cluster of out.clusters) {
+        expect(cluster.source).toBe("backend_geoops");
+        expect(typeof cluster.priority_score).toBe("number");
+      }
       for (const inc of out.updated_incidents) {
         expect(inc.cluster_id).toBeTruthy();
         expect(
