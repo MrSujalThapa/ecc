@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
+import { buildClusterSourceView } from "@/lib/dashboard/buildClusterSourceView";
 import type { Incident, SurgeCluster } from "@/lib/types";
 import { ClusterIncidentList } from "@/components/incidents/ClusterIncidentList";
 import {
@@ -30,21 +31,39 @@ export function ClusterDrawer({
   const mode = getClusterMode(cluster, incidents);
   const radiusMeters = estimateClusterRadiusMeters(cluster, incidents);
   const priorityScore = getClusterPriorityScore(cluster, incidents);
+  const sourceView = buildClusterSourceView(cluster.source);
+  const sourceToneClass =
+    sourceView.tone === "info"
+      ? "border-cyan-300/20 bg-cyan-500/10 text-cyan-100"
+      : sourceView.tone === "warning"
+        ? "border-amber-300/20 bg-amber-500/10 text-amber-100"
+        : "border-white/10 bg-white/[0.04] text-slate-200";
 
   return (
     <aside className="flex min-h-0 flex-col border-l border-white/10 bg-[#000814] text-white">
       <div className="border-b border-white/10 px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
-          Selected Cluster
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
+            Selected Cluster
+          </p>
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${sourceToneClass}`}
+          >
+            {sourceView.label}
+          </span>
+        </div>
         <h2 className="mt-2 text-xl font-semibold">{cluster.title}</h2>
         <p className="mt-2 text-sm leading-6 text-slate-400">
           {cluster.summary || "No cluster summary is available yet."}
+        </p>
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          {sourceView.description}
         </p>
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
         <section className="grid grid-cols-2 gap-3">
+          <Detail label="Source" value={sourceView.label} />
           <Detail label="Mode" value={formatStatusLabel(mode)} />
           <Detail label="Incident count" value={cluster.incident_count} />
           <Detail
@@ -60,7 +79,7 @@ export function ClusterDrawer({
             value={radiusMeters === null ? "Not available" : `${radiusMeters} m`}
           />
           <Detail
-            label="Priority"
+            label="Priority score"
             value={priorityScore === null ? "Not scored" : priorityScore}
           />
           {visibility.showClusterDrawerTechnicalIds ? (

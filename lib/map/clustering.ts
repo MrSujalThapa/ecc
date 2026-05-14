@@ -5,11 +5,13 @@ import { isValidCoordinates } from "@/lib/map/geojson";
 const GRID_SIZE_DEGREES = 0.02;
 
 type ClusterAccumulator = {
+  clusterId: string;
   incidentIds: string[];
   urgencyBreakdown: Partial<Record<Urgency, number>>;
   latTotal: number;
   lngTotal: number;
-  priorityTotal: number;
+  priorityMax: number | null;
+  source: "backend_geoops" | "client_fallback";
 };
 
 /** Map-derived cluster that contains this incident (via `incident_ids`), if any. */
@@ -48,6 +50,10 @@ export function getClusterPriorityScore(
   cluster: SurgeCluster,
   incidents: Incident[],
 ) {
+  if (typeof cluster.priority_score === "number") {
+    return cluster.priority_score;
+  }
+
   const scores = getClusterIncidents(cluster, incidents)
     .map((incident) => incident.priority_score)
     .filter((score): score is number => typeof score === "number");
@@ -106,16 +112,20 @@ export function deriveSurgeClusters(incidents: Incident[]): SurgeCluster[] {
     .filter((incident) => isValidCoordinates(incident.coordinates))
     .forEach((incident) => {
       const coordinates = incident.coordinates!;
-      const key = incident.cluster_id ?? [
+      const backendClusterId = incident.cluster_id?.trim() || null;
+      const localKey = [
         Math.round(coordinates.lat / GRID_SIZE_DEGREES),
         Math.round(coordinates.lng / GRID_SIZE_DEGREES),
       ].join(":");
+      const key = backendClusterId ?? localKey;
       const current = grouped.get(key) ?? {
+        clusterId: backendClusterId ?? `local-${localKey}`,
         incidentIds: [],
         urgencyBreakdown: {},
         latTotal: 0,
         lngTotal: 0,
-        priorityTotal: 0,
+        priorityMax: null,
+        source: backendClusterId ? "backend_geoops" : "client_fallback",
       };
 
       current.incidentIds.push(incident.id);
@@ -123,21 +133,34 @@ export function deriveSurgeClusters(incidents: Incident[]): SurgeCluster[] {
         (current.urgencyBreakdown[incident.urgency] ?? 0) + 1;
       current.latTotal += coordinates.lat;
       current.lngTotal += coordinates.lng;
-      current.priorityTotal += incident.priority_score ?? 0;
+      if (typeof incident.priority_score === "number") {
+        current.priorityMax =
+          current.priorityMax === null
+            ? incident.priority_score
+            : Math.max(current.priorityMax, incident.priority_score);
+      }
       grouped.set(key, current);
     });
 
-  return Array.from(grouped.entries()).map(([key, cluster]) => ({
-    cluster_id: `local-${key}`,
-    title: "Local incident cluster",
+  return Array.from(grouped.values()).map((cluster) => ({
+    cluster_id: cluster.clusterId,
+    title:
+      cluster.source === "backend_geoops"
+        ? "Backend GeoOps cluster"
+        : "Local incident cluster",
     incident_count: cluster.incidentIds.length,
     urgency_breakdown: cluster.urgencyBreakdown,
-    summary: `${cluster.incidentIds.length} visible incidents grouped locally.`,
+    summary:
+      cluster.source === "backend_geoops"
+        ? `${cluster.incidentIds.length} incidents grouped from persisted backend GeoOps clustering.`
+        : `${cluster.incidentIds.length} visible incidents grouped locally.`,
     top_recommended_action:
-      cluster.priorityTotal > 0
+      cluster.priorityMax !== null
         ? "Prioritize highest-score incidents in this area."
         : null,
     incident_ids: cluster.incidentIds,
+    source: cluster.source,
+    priority_score: cluster.priorityMax,
     center: {
       lat: cluster.latTotal / cluster.incidentIds.length,
       lng: cluster.lngTotal / cluster.incidentIds.length,
@@ -149,5 +172,8 @@ export function getDisplaySurgeClusters(incidents: Incident[]): SurgeCluster[] {
   const derivedClusters = deriveSurgeClusters(incidents);
   return derivedClusters.length > 0 || incidents.length === 0
     ? derivedClusters
-    : mockSurgeClusters;
+    : mockSurgeClusters.map((cluster) => ({
+        ...cluster,
+        source: cluster.source ?? "client_fallback",
+      }));
 }
