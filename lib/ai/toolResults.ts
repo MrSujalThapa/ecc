@@ -30,8 +30,10 @@ export type ToolExecutionSource =
   | "mapbox_mcp"
   | "mapbox_api"
   | "static_context"
+  | "template"
   | "database"
-  | "manual";
+  | "manual"
+  | "unknown";
 
 export type ToolSafetyLevel = "read_only" | "operator_confirm_required";
 
@@ -64,9 +66,12 @@ export type ToolResult<T = unknown> = {
   tool_request_id: string;
   tool: SafeToolName;
   ok: boolean;
+  status: "success" | "error";
   source: ToolExecutionSource;
+  args: Record<string, unknown>;
   data?: T;
   error?: ToolError;
+  latency_ms: number;
   created_at: string;
 };
 
