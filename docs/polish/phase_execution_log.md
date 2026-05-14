@@ -1222,13 +1222,13 @@ Next phase should build a chronological timeline using available incident/sessio
 
 ---
 
-## Phase 17 — Add Tool/Action Timeline
+## Phase 17 ? Add Tool/Action Timeline
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1236,34 +1236,68 @@ Visual timeline for incident lifecycle (start, transcript, triage, tools, locati
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added a compact incident timeline to the drawer triage tab.
+- [x] Added a pure timeline helper and focused deterministic timeline tests.
 
 ### Files Changed
 
+- `components/incidents/IncidentDrawer.tsx`
+- `components/incidents/IncidentTimeline.tsx`
+- `lib/dashboard/buildIncidentTimeline.ts`
+- `lib/dashboard/buildIncidentTimeline.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 146 tests across 20 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added an honest incident timeline inside the drawer triage tab.
+- Added `IncidentTimeline` as a compact collapsible lifecycle timeline.
+- Added `buildIncidentTimeline` as a pure helper that derives chronological events from incident and optional active call session data.
+- Timeline shows available lifecycle events for:
+  - incident created
+  - current status
+  - urgency / priority known
+  - location state available
+  - recommendation available
+  - missing fields identified
+  - structured fields captured
+  - operator requirement evaluated
+  - escalation flagged
+  - transfer status recorded
+  - next AI question queued
+  - incident updated
+- Timeline explicitly notes that detailed tool trace is not available in the drawer yet.
+- No provider/tool/Mapbox MCP/Gemma/Featherless claims are fabricated.
+- No backend, runtime, GeoOps, SMS, transfer, ElevenLabs, or map behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildIncidentTimeline.test.ts`.
+- Covered:
+  - created/updated timestamp events
+  - status/urgency/operator/location/recommendation events
+  - transfer/escalation/next-question events from active call session
+  - safe handling of missing/null data
+  - no fabricated tool/provider claims
+  - deterministic sorting
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 18 can begin by improving SMS and transfer UI states.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on operator-facing SMS/transfer status clarity. It should not change backend transfer execution, GeoOps cluster-source display, multilingual UI, Mapbox MCP, or triage/runtime behavior unless a tiny type-safe frontend mapping is required.
 
 ---
 
