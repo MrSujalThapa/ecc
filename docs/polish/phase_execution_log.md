@@ -1456,11 +1456,11 @@ Next phase should focus on displaying caller language/original transcript/Englis
 
 ## Phase 20 — Add Multilingual Demo Visibility
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1468,34 +1468,64 @@ Dashboard/demo surfaces caller language, original transcript, English summary/tr
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `buildMultilingualSummary` and wired `MultilingualTracePanel` into the drawer triage tab.
+- [x] Clarified transcript row labeling in `LiveTranscriptPanel` and added focused multilingual summary tests.
 
 ### Files Changed
 
+- `lib/dashboard/buildMultilingualSummary.ts`
+- `components/incidents/MultilingualTracePanel.tsx`
+- `components/incidents/IncidentDrawer.tsx`
+- `components/voice/LiveTranscriptPanel.tsx`
+- `lib/dashboard/buildMultilingualSummary.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 165 tests across 24 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added conservative multilingual summary logic using:
+  - `TranscriptEvent.language`
+  - `TranscriptEvent.translated_text`
+  - `incident.collected_fields.caller_language`
+- Added `MultilingualTracePanel` to the incident drawer triage tab.
+- The drawer now shows multilingual visibility fields for:
+  - caller language
+  - translation status
+  - original caller transcript availability
+  - English transcript availability
+  - AI reply language availability
+  - operator-facing English summary availability
+- When multilingual data is missing, the UI explicitly says multilingual details are not available yet.
+- `LiveTranscriptPanel` now labels transcript rows more clearly:
+  - Transcript
+  - language code when present
+  - English translation only when `translated_text` exists
+- No IBM/watsonx usage is claimed unless data explicitly supports it.
+- No backend translation behavior changed.
+- No ElevenLabs, triage/runtime, Mapbox MCP, SMS/transfer, GeoOps, or cluster-source behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildMultilingualSummary.test.ts`.
+- Covered missing multilingual data, caller language, translated text availability, no fake translation/provider claims, and null/missing field safety.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 21 can begin by final hardening, final demo script, and final verification checklist.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should freeze feature work, run final verification, create the final demo script/checklist, and document remaining post-Phase-21 backlog such as Safe Transfer Execution.
 
 ---
 
