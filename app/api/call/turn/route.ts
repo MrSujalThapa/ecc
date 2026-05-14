@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { CallTurnResponse } from "@/lib/types/api";
 import { jsonError, repositoryErrorResponse, zodToMessage } from "@/lib/server/api-route-helpers";
-import { repositoryCallTurn } from "@/lib/db/call-repository";
+import { runEmergencyTurn } from "@/lib/runtime/runEmergencyTurn";
 import { callTurnRequestSchema } from "@/lib/validation/api-requests";
 
 const voiceDebugEnabled = (): boolean => process.env.ECC_VOICE_DEBUG === "true";
@@ -50,7 +50,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       source: parsed.data.source ?? null,
     });
 
-    const result = await repositoryCallTurn(parsed.data);
+    const result = await runEmergencyTurn(parsed.data);
     const payload: CallTurnResponse = {
       say_to_caller: result.say_to_caller,
       incident: result.incident,
