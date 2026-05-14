@@ -1531,11 +1531,11 @@ Next phase should freeze feature work, run final verification, create the final 
 
 ## Phase 21 — Final Hardening, Tests, and Demo Script
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1543,34 +1543,42 @@ Produce `docs/polish/final_demo_script.md`, `docs/polish/final_verification_chec
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `docs/polish/final_demo_script.md` and `docs/polish/final_verification_checklist.md` with demo narrative, verification steps, honest limitations, and post–Phase 21 backlog.
+- [x] Ran full verification commands (`npm.cmd run build`, `npm.cmd run test:run`, `npm.cmd run lint`) and recorded outcomes below.
 
 ### Files Changed
 
+- `docs/polish/final_demo_script.md`
+- `docs/polish/final_verification_checklist.md`
+- `docs/polish/master_project_plan.md`
+- `docs/polish/phase_execution_log.md`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed (Next.js production build succeeded; Turbopack inferred workspace root / multiple lockfiles warning; middleware deprecation notice)  
+`npm.cmd run test:run` — passed, **165 tests** across **24** test files  
+`npm.cmd run lint` — passed, **0 errors** and **6** pre-existing warnings in `app/api/twilio/dial-result/route.ts`, `components/map/CommandMap.tsx`, `lib/ai/toolResults.ts`
 
 ### Result
 
-Not started.
+- Delivered sponsor-facing **demo script** covering overview, polish highlights (phases 3–20), dashboard-first flow, optional PSTN flow, simulation fallback, expected observations, technical callouts (unified runtime, EL **`say_to_caller`**, Mapbox MCP geocode fallback, SMS/recipient honesty, advisory transfer + assignment engine, GeoOps cluster provenance, AI Trace, timeline, SMS/transfer UI, multilingual visibility), and **known limitations**.
+- Delivered **verification checklist**: branch/env checks, automated CI slots filled with Phase 21 results, manual dashboard/call/SMS/geocode/cluster/multilingual sections, fallback honesty, **Post–Phase 21 backlog** (Safe Transfer Execution bullets + platform items).
+- Added concise **Post–Phase 21 backlog** subsection to `master_project_plan.md` after Phase 21 table (pointer to checklist for detail).
+- **Master-plan Verified criterion** (two independent readers run end-to-end demo script without blockers): **not executed in this session** — checklist dual-reader verification remains pending; Phase 21 marked **Completed**, not **Verified**.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Polish sprint scope per phases 1–21 is closed. Remaining roadmap items live under **Post–Phase 21 backlog** in `docs/polish/final_verification_checklist.md` and `docs/polish/master_project_plan.md`.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Execute dual-reader verification from `docs/polish/final_demo_script.md` (Section **Main demo flow**); check boxes in `docs/polish/final_verification_checklist.md`. When satisfied, record **Verified** in this log per legend. Prioritize **Safe Transfer Execution** before treating transfer UX as production-complete.
 
 ---
 
