@@ -692,13 +692,13 @@ Phase 10 can begin by replacing or wrapping the existing `geocode_location` exec
 Next phase should integrate `geocodeWithMapboxMcp()` into the existing `geocode_location` tool path. It should preserve mock fallback when MCP is unavailable/erroring and should not implement dashboard UI, operator assignment, GeoOps persistence, SMS, or multilingual changes.
 
 ---
-## Phase 10 — Replace Mock geocode_location
+## Phase 10 ? Replace Mock geocode_location
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -706,37 +706,71 @@ Route triage `geocode_location` through MCP-backed geocoding with fallback; map 
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Wrapped the existing `geocodeLocation()` executor with MCP-first geocoding while preserving the public tool contract and fallback behavior.
+- [x] Added focused regression coverage for MCP success and mock/static fallback paths.
 
 ### Files Changed
+
+- `lib/tools/geocodeLocation.ts`
+- `lib/tools/geocodeLocation.test.ts`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 10 is completed and not yet verified.
+
+- `geocodeLocation()` now tries `geocodeWithMapboxMcp()` first.
+- Existing `geocode_location` tool name and executor output shape were preserved.
+- MCP success returns Mapbox-derived:
+  - `normalized_location`
+  - `{ lat, lng }` coordinates
+  - `confidence`
+  - `provider_place_id`
+  - `source: "mapbox_mcp"`
+- MCP unavailable/error cases fall back to the existing static landmark + deterministic jitter logic.
+- Current demo behavior is preserved when MCP is unavailable.
+- `toolRegistry`, `executeAllowedToolRequests`, `runEmergencyTurn`, routes, ElevenLabs, SMS, transfer, GeoOps, and dashboard code were not changed.
+
+### Tests
+
+- Added `lib/tools/geocodeLocation.test.ts`.
+- Covered:
+  - unavailable MCP ? static landmark fallback
+  - MCP success ? MCP result wins
+  - MCP error ? mock/static fallback
+  - unknown location ? deterministic jitter fallback remains stable
+
+Command results:
+
+- `npm run build` ? passed.
+- `npm run test:run` ? passed, `119` tests across `16` files.
+- `npm run lint` ? passed, `0` errors and `6` pre-existing unrelated warnings in:
+  - `app/api/twilio/dial-result/route.ts`
+  - `components/map/CommandMap.tsx`
+  - `lib/ai/toolResults.ts`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 11 can begin by adding stronger tool result provenance across runtime/tool traces.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on tool result provenance. Do not implement operator assignment, GeoOps persistence, dashboard UI, SMS, transfer bridge, or multilingual changes yet.
 
 ---
-
 ## Phase 11 — Add Tool Result Provenance
 
 **Status:** Not Started  
