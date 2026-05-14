@@ -1,12 +1,22 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import type { Incident, OperatorUpdateIncidentRequest } from "@/lib/types";
+import type {
+  CallSession,
+  Incident,
+  OperatorSendSmsResponse,
+  OperatorUpdateIncidentRequest,
+} from "@/lib/types";
 import type { OperatorActions } from "@/lib/data/operatorActions";
+import {
+  buildSmsStatusView,
+  buildTransferStatusView,
+} from "@/lib/dashboard/buildOperatorCommStatus";
 import { getIncidentDisplayId } from "@/lib/map/incidentStyling";
 
 type CallControlPanelProps = {
   incident: Incident;
+  activeCallSession?: CallSession | null;
   operatorActions: OperatorActions;
   onActionComplete: () => Promise<void> | void;
   operatorId?: string;
@@ -28,12 +38,15 @@ function defaultSmsMessage(incident: Incident) {
 
 export function CallControlPanel({
   incident,
+  activeCallSession = null,
   operatorActions,
   onActionComplete,
   operatorId = "OP-1",
 }: CallControlPanelProps) {
   const [activeAction, setActiveAction] = useState<ActionName | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback>(null);
+  const [lastSmsResult, setLastSmsResult] =
+    useState<OperatorSendSmsResponse | null>(null);
   const [smsMessage, setSmsMessage] = useState(() => defaultSmsMessage(incident));
   const [note, setNote] = useState("");
 
@@ -55,6 +68,25 @@ export function CallControlPanel({
         return null;
     }
   }, [activeAction]);
+
+  const smsStatus = useMemo(
+    () =>
+      buildSmsStatusView({
+        incident,
+        activeCallSession,
+        lastSmsResult,
+      }),
+    [activeCallSession, incident, lastSmsResult],
+  );
+
+  const transferStatus = useMemo(
+    () =>
+      buildTransferStatusView({
+        incident,
+        activeCallSession,
+      }),
+    [activeCallSession, incident],
+  );
 
   async function runAction(
     name: ActionName,
@@ -119,6 +151,7 @@ export function CallControlPanel({
         operator_id: operatorId,
         message: smsMessage,
       });
+      setLastSmsResult(result);
 
       if (result.sent) {
         return {
@@ -183,6 +216,27 @@ export function CallControlPanel({
         Operator Actions
       </h3>
       <div className="space-y-4 rounded-2xl border border-white/10 bg-[#040f16] p-4">
+        <StatusCard title="Transfer & escalation state">
+          <StatusRow
+            label="Operator requirement"
+            value={transferStatus.operatorRequiredLabel}
+            tone={transferStatus.operatorRequiredTone}
+          />
+          <StatusRow
+            label="Escalation flag"
+            value={transferStatus.escalationLabel}
+            tone={transferStatus.escalationTone}
+          />
+          <StatusRow
+            label="Transfer status"
+            value={transferStatus.transferLabel}
+            tone={transferStatus.transferTone}
+          />
+          <p className="mt-3 text-xs leading-5 text-slate-400">
+            {transferStatus.helpText}
+          </p>
+        </StatusCard>
+
         <div className="grid grid-cols-2 gap-2">
           <ActionButton
             disabled={actionInProgress || resolved}
@@ -199,6 +253,29 @@ export function CallControlPanel({
             Mark Resolved
           </ActionButton>
         </div>
+
+        <StatusCard title="SMS recipient state">
+          <StatusRow
+            label={smsStatus.recipientLabel}
+            value={smsStatus.recipientValue}
+            tone={smsStatus.recipientTone}
+          />
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {smsStatus.recipientHelp}
+          </p>
+          <div className="mt-3">
+            <StatusRow
+              label={smsStatus.deliveryLabel}
+              value={smsStatus.deliveryValue}
+              tone={smsStatus.deliveryTone}
+            />
+            {smsStatus.deliveryHelp ? (
+              <p className="mt-2 text-xs leading-5 text-slate-400">
+                {smsStatus.deliveryHelp}
+              </p>
+            ) : null}
+          </div>
+        </StatusCard>
 
         <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
           SMS message
@@ -255,6 +332,49 @@ export function CallControlPanel({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function StatusCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#000814] p-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </h4>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
+
+function StatusRow({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "warning" | "error";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+      : tone === "warning"
+        ? "border-amber-400/20 bg-amber-500/10 text-amber-100"
+        : tone === "error"
+          ? "border-red-400/20 bg-red-500/10 text-red-100"
+          : "border-white/10 bg-white/[0.03] text-slate-200";
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
+      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-medium">{value}</p>
+    </div>
   );
 }
 

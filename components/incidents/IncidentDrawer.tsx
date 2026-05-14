@@ -210,6 +210,7 @@ function IncidentDrawerContent({
             <div className="space-y-5">
               <CallControlPanel
                 incident={incident}
+                activeCallSession={activeCallSession}
                 operatorActions={operatorActions}
                 onActionComplete={onActionComplete}
               />
