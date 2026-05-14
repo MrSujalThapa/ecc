@@ -3,6 +3,7 @@ import {
   repositoryCallEnd,
   repositoryCallStart,
   repositoryCallTurn,
+  repositoryLatestCallerPhoneForIncident,
   repositoryListCallSessionsForDev,
   repositoryListIncidentsForDev,
   repositoryOperatorResolve,
@@ -14,6 +15,7 @@ import {
   repositorySurgeAnalyze,
 } from "./call-repository";
 import {
+  createCallSessionForIncident,
   getDemoStoreSizes,
   getIncident,
   getTranscriptHistoryForSession,
@@ -295,6 +297,25 @@ describe("call-repository (in-memory / no Supabase)", () => {
       });
       expect(out.sent).toBe(false);
       expect(out.incident_id).toBe(incident_id);
+    });
+  });
+
+  describe("repositoryLatestCallerPhoneForIncident", () => {
+    it("returns the newest non-empty caller_phone when a newer session is blank", async () => {
+      const started = await repositoryCallStart({
+        mode: "normal",
+        caller_phone: "+14155550101",
+      });
+      createCallSessionForIncident(started.incident, {
+        caller_phone: "   ",
+      });
+      createCallSessionForIncident(started.incident, {
+        caller_phone: null,
+      });
+
+      await expect(
+        repositoryLatestCallerPhoneForIncident(started.incident_id)
+      ).resolves.toBe("+14155550101");
     });
   });
 

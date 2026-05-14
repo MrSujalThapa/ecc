@@ -63,6 +63,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   }
 
   if (!recipient) {
+    console.warn(
+      `[send-sms] No caller_phone fallback found for incident=${parsed.data.incident_id}`
+    );
     const payload: OperatorSendSmsResponse = {
       incident_id: basePayload.incident_id,
       sent: false,
