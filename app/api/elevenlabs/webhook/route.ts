@@ -30,7 +30,10 @@
 import { NextResponse } from "next/server";
 import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
 import { runEmergencyTurn } from "@/lib/runtime/runEmergencyTurn";
-import { resolveCallerPhoneJsonOrTwilio } from "@/lib/voice/callerPhoneResolution";
+import {
+  extractCallerPhoneFromJsonPayload,
+  resolveCallerPhoneJsonOrTwilio,
+} from "@/lib/voice/callerPhoneResolution";
 import {
   parseElevenLabsEvent,
   verifyElevenLabsSignature,
@@ -45,6 +48,7 @@ import {
   getSessionByElevenLabsId,
   getSessionByTwilioSid,
   getRecentPhoneSession,
+  patchVoiceSessionCallerPhone,
   registerVoiceSession,
   updateVoiceSessionElevenLabsId,
   patchVoiceSessionIds,
@@ -264,6 +268,11 @@ const redactPhone = (value: string | null | undefined): string | null => {
   return `[redacted-phone:*${digits.slice(-4)}]`;
 };
 
+const normalizeCallerPhone = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 const summarizeKeys = (value: unknown): string[] =>
   value && typeof value === "object" && !Array.isArray(value)
     ? Object.keys(value as Record<string, unknown>).sort()
@@ -389,6 +398,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     let resolvedIncidentId = incidentId;
     let resolvedCallSessionId = callSessionId;
     let resolvedTwilioCallSid = twilioCallSid;
+    let resolvedCallerPhone: string | null = null;
     let sessionLookupKey: string | undefined = conversationId ?? twilioCallSid ?? undefined;
 
     // Fallback: look up by conversation_id
@@ -397,6 +407,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (entry) {
         resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
         resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
+        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(entry.caller_phone);
         sessionLookupKey = conversationId;
       }
     }
@@ -407,6 +418,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (entry) {
         resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
         resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
+        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(entry.caller_phone);
         sessionLookupKey = twilioCallSid;
       }
     }
@@ -436,6 +448,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       if (fpEntry) {
         resolvedIncidentId = fpEntry.incident_id;
         resolvedCallSessionId = fpEntry.call_session_id;
+        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(fpEntry.caller_phone);
         sessionLookupKey = fingerprint;
         console.info(
           `[elevenlabs/webhook] Resolved session via fingerprint: incident=${resolvedIncidentId}`
@@ -450,10 +463,12 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           resolvedIncidentId = phoneSession.incident_id;
           resolvedCallSessionId = phoneSession.call_session_id;
           resolvedTwilioCallSid = phoneSession.twilio_call_sid ?? phoneSession.sid;
+          resolvedCallerPhone =
+            resolvedCallerPhone ?? normalizeCallerPhone(phoneSession.caller_phone);
           updateVoiceSessionElevenLabsId(phoneSession.sid, fingerprint);
           sessionLookupKey = fingerprint;
           console.info(
-            `[elevenlabs/webhook] Linked to Twilio phone session: incident=${resolvedIncidentId} sid=${resolvedTwilioCallSid}`
+            `[elevenlabs/webhook] Linked to Twilio phone session: incident=${resolvedIncidentId} sid=${resolvedTwilioCallSid} caller_phone=${redactPhone(resolvedCallerPhone) ?? "null"}`
           );
         } else {
         // First turn of a new call — generate IDs locally (instant, no DB wait).
@@ -468,6 +483,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           incident_id: resolvedIncidentId,
           call_session_id: resolvedCallSessionId,
           mode: "normal",
+          caller_phone: resolvedCallerPhone,
         });
         updateVoiceSessionElevenLabsId(fingerprint, fingerprint);
         sessionLookupKey = fingerprint;
@@ -477,6 +493,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             incident_id: resolvedIncidentId,
             call_session_id: resolvedCallSessionId,
             mode: "normal",
+            caller_phone: resolvedCallerPhone,
           });
           updateVoiceSessionElevenLabsId(conversationId, conversationId);
         }
@@ -492,14 +509,32 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         const sidForDb = twilioCallSid?.trim() || null;
         void (async () => {
           const ct = request.headers.get("content-type") ?? "(none)";
-          const callerPhoneResolved = await resolveCallerPhoneJsonOrTwilio({
-            rawJson: parsedBody,
-            twilioCallSid: sidForDb,
-          });
+          const callerPhoneFromPayload = extractCallerPhoneFromJsonPayload(parsedBody);
+          const callerPhoneFromTwilio =
+            resolvedCallerPhone || callerPhoneFromPayload
+              ? null
+              : await resolveCallerPhoneJsonOrTwilio({
+                  twilioCallSid: sidForDb,
+                });
+          const callerPhoneResolved =
+            resolvedCallerPhone ??
+            callerPhoneFromPayload ??
+            callerPhoneFromTwilio;
+          const callerPhoneSource = resolvedCallerPhone
+            ? "linked_voice_session"
+            : callerPhoneFromPayload
+              ? "payload"
+              : callerPhoneFromTwilio
+                ? "twilio_lookup"
+                : "unresolved";
+          patchVoiceSessionCallerPhone(fingerprint, callerPhoneResolved);
+          if (conversationId && conversationId !== fingerprint) {
+            patchVoiceSessionCallerPhone(conversationId, callerPhoneResolved);
+          }
           console.info(
             `[elevenlabs/webhook] repositoryCallStart(new-call) content-type=${ct} ` +
               `CallSid=${sidForDb ?? "null"} elevenlabs_conversation_id=${autoConvKey} ` +
-              `caller_phone=${redactPhone(callerPhoneResolved) ?? "null"}`
+              `caller_phone=${redactPhone(callerPhoneResolved) ?? "null"} source=${callerPhoneSource}`
           );
           try {
             const started = await repositoryCallStart({
@@ -509,8 +544,10 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
               caller_phone: callerPhoneResolved,
             });
             patchVoiceSessionIds(fingerprint, started.incident_id, started.call_session_id);
+            patchVoiceSessionCallerPhone(fingerprint, callerPhoneResolved);
             if (conversationId && conversationId !== fingerprint) {
               patchVoiceSessionIds(conversationId, started.incident_id, started.call_session_id);
+              patchVoiceSessionCallerPhone(conversationId, callerPhoneResolved);
             }
             console.info(
               `[elevenlabs/webhook] ✅ Session patched: local=${localIncidentId} → real=${started.incident_id} (Supabase: ${started.incident_id !== localIncidentId ? "YES" : "in-memory"})`

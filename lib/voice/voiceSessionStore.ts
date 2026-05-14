@@ -136,6 +136,8 @@ export type VoiceSessionEntry = {
    * Stored here so the ElevenLabs webhook can retrieve it for live call transfer.
    */
   twilio_call_sid: string | null;
+  /** Best-known caller phone for this session when telephony provides it. */
+  caller_phone?: string | null;
   /**
    * Cached triage state from the last repositoryCallTurn response.
    * Updated async after each turn — used by the next turn's voice prompt
@@ -149,6 +151,14 @@ const bySid = new Map<string, VoiceSessionEntry>();
 
 // Map: elevenlabs_conversation_id → session entry
 const byElId = new Map<string, VoiceSessionEntry>();
+
+const trimCallerPhone = (value: string | null | undefined): string | null => {
+  const phone = value?.trim() ?? "";
+  return phone.length > 0 ? phone : null;
+};
+
+const getSessionEntry = (lookup_key: string): VoiceSessionEntry | undefined =>
+  bySid.get(lookup_key) ?? byElId.get(lookup_key);
 
 // ---------------------------------------------------------------------------
 // Write helpers
@@ -164,6 +174,7 @@ export const registerVoiceSession = (opts: {
   call_session_id: string;
   mode?: string;
   elevenlabs_conversation_id?: string | null;
+  caller_phone?: string | null;
 }): void => {
   // Only store real Twilio SIDs (CA/CF prefix). Fingerprint keys (fp:...) are
   // internal identifiers, not real SIDs — don't expose them as twilio_call_sid.
@@ -174,6 +185,7 @@ export const registerVoiceSession = (opts: {
     mode: opts.mode ?? "normal",
     created_at: new Date().toISOString(),
     twilio_call_sid: realSid,
+    caller_phone: trimCallerPhone(opts.caller_phone),
   };
   bySid.set(opts.twilio_call_sid, entry);
   if (opts.elevenlabs_conversation_id) {
@@ -210,12 +222,24 @@ export const patchVoiceSessionIds = (
   real_call_session_id: string
 ): void => {
   // Patch every entry in both maps that matches this lookup key
-  const entry = bySid.get(lookup_key) ?? byElId.get(lookup_key);
+  const entry = getSessionEntry(lookup_key);
   if (!entry) return;
   entry.incident_id = real_incident_id;
   entry.call_session_id = real_call_session_id;
   // Because all registered keys share the same object reference, a single
   // mutation updates all lookup paths simultaneously.
+};
+
+export const patchVoiceSessionCallerPhone = (
+  lookup_key: string,
+  caller_phone: string | null | undefined
+): void => {
+  const entry = getSessionEntry(lookup_key);
+  if (!entry) return;
+  const nextPhone = trimCallerPhone(caller_phone);
+  const currentPhone = trimCallerPhone(entry.caller_phone);
+  if (currentPhone || !nextPhone) return;
+  entry.caller_phone = nextPhone;
 };
 
 /**
@@ -229,7 +253,7 @@ export const patchVoiceTriageState = (
   lookup_key: string,
   state: VoiceTriageState
 ): void => {
-  const entry = bySid.get(lookup_key) ?? byElId.get(lookup_key);
+  const entry = getSessionEntry(lookup_key);
   if (!entry) return;
   const current = entry.triage_state;
   const incomingHistory =

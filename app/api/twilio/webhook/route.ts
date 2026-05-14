@@ -50,6 +50,12 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     body.caller?.trim() ||
     null;
 
+  if (!callerPhone) {
+    console.warn(
+      `[twilio/webhook] Missing inbound caller phone (From) for CallSid=${callSid || "null"}`
+    );
+  }
+
   console.info(
     `[twilio/webhook] content-type=${contentType} inbound CallSid=${callSid || "null"} ` +
       `CallStatus=${callStatus} From=${callerPhone ?? "(missing)"} ` +
@@ -104,6 +110,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     incident_id: incidentId,
     call_session_id: callSessionId,
     mode,
+    caller_phone: callerPhone,
   });
 
   // 5. If ElevenLabs is configured, try to get a signed conversation URL

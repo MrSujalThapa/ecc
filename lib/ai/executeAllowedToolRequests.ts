@@ -54,6 +54,18 @@ const buildError = (
   details?: unknown
 ): ToolError => ({ code, message, details });
 
+const toolResultBase = (
+  request: ToolRequest,
+  overrides: Partial<ToolResult> & Pick<ToolResult, "ok" | "status" | "source">
+): ToolResult => ({
+  tool_request_id: request.id,
+  tool: request.tool,
+  args: request.args,
+  latency_ms: 0,
+  created_at: isoNow(),
+  ...overrides,
+});
+
 const normalizeRequest = (
   raw: TriageToolRequest,
   fallbackToolName?: string
@@ -98,14 +110,13 @@ const placeholderRejection = (
   };
   return {
     request,
-    result: {
-      tool_request_id: id,
-      tool: toolName,
+    result: toolResultBase(request, {
       ok: false,
+      status: "error",
       source: "manual",
       error: preflightError,
-      created_at: isoNow(),
-    },
+      latency_ms: 0,
+    }),
   };
 };
 
@@ -162,17 +173,16 @@ const dispatchOne = async (
   if (!definition) {
     return {
       request,
-      result: {
-        tool_request_id: request.id,
-        tool: request.tool,
+      result: toolResultBase(request, {
         ok: false,
+        status: "error",
         source: "manual",
         error: buildError(
           "unknown_tool",
           `Tool "${request.tool}" is not registered.`
         ),
-        created_at: isoNow(),
-      },
+        latency_ms: 0,
+      }),
     };
   }
 
@@ -181,17 +191,16 @@ const dispatchOne = async (
   if (!isModeAllowed(definition, mode)) {
     return {
       request,
-      result: {
-        tool_request_id: request.id,
-        tool: request.tool,
+      result: toolResultBase(request, {
         ok: false,
+        status: "error",
         source: "manual",
         error: buildError(
           "mode_not_allowed",
           `Tool "${request.tool}" is not allowed in mode "${mode}".`
         ),
-        created_at: isoNow(),
-      },
+        latency_ms: 0,
+      }),
     };
   }
 
@@ -203,50 +212,49 @@ const dispatchOne = async (
     }));
     return {
       request,
-      result: {
-        tool_request_id: request.id,
-        tool: request.tool,
+      result: toolResultBase(request, {
         ok: false,
+        status: "error",
         source: "manual",
         error: buildError(
           "invalid_args",
           `Invalid args for "${request.tool}".`,
           issues
         ),
-        created_at: isoNow(),
-      },
+        latency_ms: 0,
+      }),
     };
   }
 
+  const startedAt = Date.now();
   const executed = await runWithTimeout(
     definition.executor(parsed.data),
     definition.timeoutMs
   );
+  const latencyMs = Date.now() - startedAt;
 
   if (!executed.ok) {
     return {
       request,
-      result: {
-        tool_request_id: request.id,
-        tool: request.tool,
+      result: toolResultBase(request, {
         ok: false,
+        status: "error",
         source: "manual",
         error: executed.error,
-        created_at: isoNow(),
-      },
+        latency_ms: latencyMs,
+      }),
     };
   }
 
   return {
     request,
-    result: {
-      tool_request_id: request.id,
-      tool: request.tool,
+    result: toolResultBase(request, {
       ok: true,
+      status: "success",
       source: executed.value.source,
       data: executed.value.data,
-      created_at: isoNow(),
-    },
+      latency_ms: latencyMs,
+    }),
   };
 };
 

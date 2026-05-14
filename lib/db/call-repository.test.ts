@@ -3,6 +3,7 @@ import {
   repositoryCallEnd,
   repositoryCallStart,
   repositoryCallTurn,
+  repositoryLatestCallerPhoneForIncident,
   repositoryListCallSessionsForDev,
   repositoryListIncidentsForDev,
   repositoryOperatorResolve,
@@ -14,6 +15,7 @@ import {
   repositorySurgeAnalyze,
 } from "./call-repository";
 import {
+  createCallSessionForIncident,
   getDemoStoreSizes,
   getIncident,
   getTranscriptHistoryForSession,
@@ -298,6 +300,25 @@ describe("call-repository (in-memory / no Supabase)", () => {
     });
   });
 
+  describe("repositoryLatestCallerPhoneForIncident", () => {
+    it("returns the newest non-empty caller_phone when a newer session is blank", async () => {
+      const started = await repositoryCallStart({
+        mode: "normal",
+        caller_phone: "+14155550101",
+      });
+      createCallSessionForIncident(started.incident, {
+        caller_phone: "   ",
+      });
+      createCallSessionForIncident(started.incident, {
+        caller_phone: null,
+      });
+
+      await expect(
+        repositoryLatestCallerPhoneForIncident(started.incident_id)
+      ).resolves.toBe("+14155550101");
+    });
+  });
+
   describe("repositorySimulateDisaster", () => {
     it("creates batch_size incidents when offset is 0", async () => {
       const out = await repositorySimulateDisaster({
@@ -421,7 +442,7 @@ describe("call-repository (in-memory / no Supabase)", () => {
   });
 
   describe("repositorySurgeAnalyze", () => {
-    it("clusters disaster cohort and persists cluster_id", async () => {
+    it("clusters disaster cohort, tags backend provenance, and persists cluster_id", async () => {
       await repositorySimulateDisaster({
         batch_size: 2,
         maxCap: 29,
@@ -434,6 +455,10 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(out.top_priority_incident_ids.length).toBe(2);
       expect(out.updated_incidents.length).toBe(2);
       expect(out.clusters.length).toBeGreaterThanOrEqual(1);
+      for (const cluster of out.clusters) {
+        expect(cluster.source).toBe("backend_geoops");
+        expect(typeof cluster.priority_score).toBe("number");
+      }
       for (const inc of out.updated_incidents) {
         expect(inc.cluster_id).toBeTruthy();
         expect(

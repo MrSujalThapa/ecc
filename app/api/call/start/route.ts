@@ -36,6 +36,12 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         `elevenlabs_conversation_id=${parsed.data.elevenlabs_conversation_id ?? "null"} ` +
         `caller_phone→repositoryCallStart=${resolvedPhone ?? "null"}`
     );
+    if (!resolvedPhone) {
+      console.warn(
+        `[call/start] caller_phone unresolved after explicit > JSON > Twilio lookup ` +
+          `(twilio_call_sid=${parsed.data.twilio_call_sid ?? "null"})`
+      );
+    }
 
     const result = await repositoryCallStart({
       ...parsed.data,

@@ -64,6 +64,10 @@ describe("executeAllowedToolRequests", () => {
     expect(out.results).toHaveLength(1);
     const result = out.results[0]!;
     expect(result.ok).toBe(false);
+    expect(result.status).toBe("error");
+    expect(result.args).toEqual({});
+    expect(result.latency_ms).toBe(0);
+    expect(result.created_at).toBeTruthy();
     expect(result.error?.code).toBe("unknown_tool");
   });
 
@@ -82,6 +86,12 @@ describe("executeAllowedToolRequests", () => {
     });
     const result = out.results[0]!;
     expect(result.ok).toBe(false);
+    expect(result.status).toBe("error");
+    expect(result.args).toEqual({
+      coordinates: { lat: 43.65, lng: -79.4 },
+      mode: "world_cup",
+    });
+    expect(result.latency_ms).toBe(0);
     expect(result.error?.code).toBe("mode_not_allowed");
   });
 
@@ -96,10 +106,13 @@ describe("executeAllowedToolRequests", () => {
     });
     const result = out.results[0]!;
     expect(result.ok).toBe(false);
+    expect(result.status).toBe("error");
+    expect(result.args).toEqual({ location_text: "" });
+    expect(result.latency_ms).toBe(0);
     expect(result.error?.code).toBe("invalid_args");
   });
 
-  it("runs geocode_location and returns a normalized result", async () => {
+  it("runs geocode_location and returns a normalized result with provenance", async () => {
     const out = await executeAllowedToolRequests({
       mode: "world_cup",
       incident: baseIncident,
@@ -117,10 +130,139 @@ describe("executeAllowedToolRequests", () => {
     expect(out.requests[0]?.safety_level).toBe("read_only");
     const result = out.results[0]!;
     expect(result.ok).toBe(true);
+    expect(result.status).toBe("success");
     expect(result.tool).toBe("geocode_location");
+    expect(result.args).toEqual({ location_text: "BMO Field" });
+    expect(result.latency_ms).toBeGreaterThanOrEqual(0);
+    expect(result.created_at).toBeTruthy();
     const data = result.data as { coordinates: { lat: number; lng: number } };
     expect(data.coordinates.lat).toBeCloseTo(43.6328, 3);
     expect(data.coordinates.lng).toBeCloseTo(-79.4187, 3);
+  });
+
+  it("preserves mapbox_mcp provenance when geocode_location succeeds via MCP", async () => {
+    process.env.MAPBOX_MCP_ENABLED = "true";
+    process.env.MAPBOX_ACCESS_TOKEN = "pk.test";
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  features: [
+                    {
+                      place_name: "BMO Field, Toronto, Ontario",
+                      mapbox_id: "mbx.123",
+                      relevance: 0.98,
+                      geometry: { coordinates: [-79.4187, 43.6332] },
+                    },
+                  ],
+                }),
+              },
+            ],
+          },
+        }),
+      }) as Response) as typeof fetch;
+
+    try {
+      const out = await executeAllowedToolRequests({
+        mode: "world_cup",
+        incident: baseIncident,
+        callSession: baseSession,
+        requests: [
+          {
+            tool: "geocode_location",
+            args: { location_text: "BMO Field" },
+            reason: "need pin",
+          },
+        ],
+      });
+
+      const result = out.results[0]!;
+      expect(result.ok).toBe(true);
+      expect(result.status).toBe("success");
+      expect(result.source).toBe("mapbox_mcp");
+    } finally {
+      global.fetch = originalFetch;
+      delete process.env.MAPBOX_MCP_ENABLED;
+      delete process.env.MAPBOX_ACCESS_TOKEN;
+    }
+  });
+
+  it("preserves fallback provenance when geocode_location falls back from MCP", async () => {
+    process.env.MAPBOX_MCP_ENABLED = "true";
+    process.env.MAPBOX_ACCESS_TOKEN = "pk.test";
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          jsonrpc: "2.0",
+          result: { content: [{ type: "text", text: JSON.stringify({ features: [] }) }] },
+        }),
+      }) as Response) as typeof fetch;
+
+    try {
+      const out = await executeAllowedToolRequests({
+        mode: "world_cup",
+        incident: baseIncident,
+        callSession: baseSession,
+        requests: [
+          {
+            tool: "geocode_location",
+            args: { location_text: "BMO Field" },
+            reason: "need pin",
+          },
+        ],
+      });
+
+      const result = out.results[0]!;
+      expect(result.ok).toBe(true);
+      expect(result.status).toBe("success");
+      expect(result.source).toBe("static_context");
+    } finally {
+      global.fetch = originalFetch;
+      delete process.env.MAPBOX_MCP_ENABLED;
+      delete process.env.MAPBOX_ACCESS_TOKEN;
+    }
+  });
+
+  it("marks sms_draft results with template provenance", async () => {
+    const out = await executeAllowedToolRequests({
+      mode: "world_cup",
+      incident: baseIncident,
+      callSession: baseSession,
+      requests: [
+        {
+          tool: "sms_draft",
+          args: {
+            incident_id: "00000000-0000-0000-0000-000000000001",
+            language: "en",
+            summary: "Minor injury near Gate 3.",
+          },
+          reason: "draft follow-up",
+        },
+      ],
+    });
+
+    const result = out.results[0]!;
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe("success");
+    expect(result.source).toBe("template");
+    expect(result.args).toEqual({
+      incident_id: "00000000-0000-0000-0000-000000000001",
+      language: "en",
+      summary: "Minor injury near Gate 3.",
+    });
   });
 
   it("returns one result per request and preserves order", async () => {
@@ -136,6 +278,9 @@ describe("executeAllowedToolRequests", () => {
     expect(out.results).toHaveLength(2);
     expect(out.results[0]!.tool).toBe("geocode_location");
     expect(out.results[0]!.ok).toBe(true);
+    expect(out.results[0]!.status).toBe("success");
+    expect(out.results[0]!.args).toEqual({ location_text: "Union Station" });
     expect(out.results[1]!.ok).toBe(false);
+    expect(out.results[1]!.status).toBe("error");
   });
 });

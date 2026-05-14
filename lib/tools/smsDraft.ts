@@ -72,6 +72,6 @@ export const smsDraft = async (
       language: args.language,
       character_count: message.length,
     },
-    source: "mock",
+    source: "template",
   };
 };

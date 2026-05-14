@@ -1527,8 +1527,11 @@ export const repositoryLatestCallerPhoneForIncident = async (
   const client = getServiceRoleClient();
   if (!client) {
     const sessions = listCallSessionsForIncidentByCreatedDesc(incident_id);
-    const raw = sessions[0]?.caller_phone?.trim();
-    return raw && raw.length > 0 ? raw : null;
+    for (const session of sessions) {
+      const raw = session.caller_phone?.trim();
+      if (raw && raw.length > 0) return raw;
+    }
+    return null;
   }
 
   const { data, error } = await client
@@ -1536,15 +1539,17 @@ export const repositoryLatestCallerPhoneForIncident = async (
     .select("caller_phone")
     .eq("incident_id", incident_id)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(25);
 
   if (error) throw new Error(error.message);
-  const raw =
-    data?.caller_phone === null || data?.caller_phone === undefined
-      ? null
-      : String(data.caller_phone).trim();
-  return raw && raw.length > 0 ? raw : null;
+  for (const row of data ?? []) {
+    const raw =
+      row?.caller_phone === null || row?.caller_phone === undefined
+        ? null
+        : String(row.caller_phone).trim();
+    if (raw && raw.length > 0) return raw;
+  }
+  return null;
 };
 
 // --- operator send SMS (stub provider) ---
@@ -1592,6 +1597,8 @@ const mapGeoOpsClustersToDomain = (
     summary: c.summary,
     top_recommended_action: c.top_recommended_action,
     incident_ids: [...c.incident_ids],
+    source: "backend_geoops",
+    priority_score: c.priority_score,
     center: { ...c.center },
   }));
 
