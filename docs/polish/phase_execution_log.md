@@ -1082,13 +1082,13 @@ Next phase should focus on frontend data hydration and fallback reliability. It 
 
 ---
 
-## Phase 15 — Fix Dashboard Initial Hydration/Fallback
+## Phase 15 ? Fix Dashboard Initial Hydration/Fallback
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1096,34 +1096,56 @@ Dashboard loads incidents without hanging when browser Supabase env is missing; 
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Fixed dashboard bootstrap so initial incident hydration no longer depends on realtime subscription availability.
+- [x] Added focused Supabase incident data source regression tests for fallback and realtime bootstrap behavior.
 
 ### Files Changed
 
+- `components/dashboard/DashboardShell.tsx`
+- `lib/data/incidentDataSource.ts`
+- `lib/data/supabaseIncidentDataSource.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 138 tests across 18 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Dashboard now always performs one initial incident fetch on mount, even when realtime subscription support exists.
+- Bootstrap result is guarded so it does not overwrite a newer realtime payload.
+- `getInitialIncidents()` is documented as the required bootstrap path.
+- `subscribeToIncidents()` is documented as an optional realtime enhancement.
+- Dashboard no longer depends on `subscribeToIncidents()` to hydrate initial incidents.
+- With Supabase browser env configured, initial incidents still load and realtime attaches separately.
+- With Supabase browser env missing, dashboard hydrates through the existing API fallback path instead of hanging in loading.
+- Manual refresh behavior remains unchanged.
+- No changes were made to map rendering, queue filtering, drawers, operator actions, GeoOps, runtime, ElevenLabs, SMS, transfer, or Mapbox geocode behavior.
+
+### Tests
+
+- Added `lib/data/supabaseIncidentDataSource.test.ts`.
+- Covered:
+  - API fallback when Supabase env is missing
+  - no-op realtime subscription when Supabase env is unavailable
+  - realtime bootstrap success path
+  - realtime bootstrap error path
+  - static fallback only when Supabase returns no incidents
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 16 can begin by adding the AI Trace panel.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on surfacing provider/tool/validation/transfer metadata in the incident drawer or operator UI. It should not add the full tool/action timeline yet; Phase 17 owns that.
 
 ---
 
