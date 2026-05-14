@@ -610,13 +610,13 @@ Next phase should implement MCP-backed geocode/search behavior without replacing
 
 ---
 
-## Phase 9 — Implement Mapbox MCP Geocode/Search Tool
+## Phase 9 ? Implement Mapbox MCP Geocode/Search Tool
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -624,37 +624,74 @@ Backend tool invokes Mapbox MCP (or explicit fallback) for geocode/search; resul
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Upgraded the Mapbox MCP client from scaffold-only behavior to real JSON-RPC transport with normalized non-throwing failure results.
+- [x] Added a backend-only geocode/search adapter plus focused tests, while leaving the active `geocode_location` runtime path unchanged.
 
 ### Files Changed
+
+- `lib/mcp/types.ts`
+- `lib/mcp/mapboxMcpClient.ts`
+- `lib/mcp/mapboxMcpClient.test.ts`
+- `lib/tools/mapbox/types.ts`
+- `lib/tools/mapbox/geocodeWithMapboxMcp.ts`
+- `lib/tools/mapbox/geocodeWithMapboxMcp.test.ts`
+- `docs/polish/contracts/mapbox_mcp_tool_contract.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 9 is completed and not yet verified.
+
+- `createMapboxMcpClient()` now performs real JSON-RPC `tools/call` POSTs only when `MAPBOX_MCP_ENABLED=true` and `MAPBOX_ACCESS_TOKEN` is present.
+- Disabled and missing-token cases return normalized non-throwing results.
+- HTTP failures, MCP error payloads, and invalid JSON-RPC responses normalize to error results instead of throwing.
+- Added injected fetch support for tests.
+- Added `geocodeWithMapboxMcp()` as a backend-only Phase 9 adapter.
+- Adapter builds a deterministic query from `location_text` plus optional city/country context.
+- Adapter calls `search_and_geocode_tool` by default.
+- Adapter returns:
+  - `success` for first valid match
+  - `unavailable` for disabled/misconfigured MCP
+  - `error` for upstream failure, invalid response, or no match
+- Existing `geocode_location` and `toolRegistry` behavior remain unchanged.
+- No triage, runtime, ElevenLabs, SMS, transfer, GeoOps, or dashboard behavior changed.
+
+### Tests
+
+- Expanded MCP client tests for disabled, misconfigured, success, HTTP failure, MCP error, and invalid-response cases.
+- Added geocode adapter tests for unavailable, success normalization, no-match, upstream-error, and query-building behavior.
+
+Command results:
+
+- `npm run build` ? passed.
+- `npm run test:run` ? passed, `115` tests across `15` files.
+- `npm run lint` ? passed, `0` errors and `6` pre-existing unrelated warnings in:
+  - `app/api/twilio/dial-result/route.ts`
+  - `components/map/CommandMap.tsx`
+  - `lib/ai/toolResults.ts`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 10 can begin by replacing or wrapping the existing `geocode_location` executor with the Mapbox MCP adapter while preserving fallback behavior.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should integrate `geocodeWithMapboxMcp()` into the existing `geocode_location` tool path. It should preserve mock fallback when MCP is unavailable/erroring and should not implement dashboard UI, operator assignment, GeoOps persistence, SMS, or multilingual changes.
 
 ---
-
 ## Phase 10 — Replace Mock geocode_location
 
 **Status:** Not Started  
