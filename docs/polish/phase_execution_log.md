@@ -306,11 +306,11 @@ Next phase should focus only on fixing the ElevenLabs split-brain path. It shoul
 
 ## Phase 5 — Fix ElevenLabs Split-Brain Voice Path
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ### Goal
 
@@ -318,35 +318,65 @@ Make ElevenLabs `llm_turn` speak validated triage `say_to_caller` using the same
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Updated `app/api/elevenlabs/webhook/route.ts`.
+- [x] Rewired the normal ElevenLabs `llm_turn` success path to resolve IDs and call `await runEmergencyTurn(...)`.
 
 ### Files Changed
+
+- `app/api/elevenlabs/webhook/route.ts`
+- `docs/polish/phase_execution_log.md`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+git status
+git diff --stat
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 5 is completed and not yet verified.
+
+- Updated `app/api/elevenlabs/webhook/route.ts`.
+- The ElevenLabs `llm_turn` path now resolves incident/session IDs and calls `await runEmergencyTurn(...)`.
+- The spoken ElevenLabs response now comes from `runtimeResult.say_to_caller`.
+- The old normal-path split-brain behavior is removed: no normal-path `void repositoryCallTurn(...)` for `llm_turn`.
+- DB/dashboard updates and caller response now come from the same runtime result.
+- JSON/SSE response formatting remains through `buildLlmResponse(...)`.
+- Transcript and post-call webhook branches were left unchanged.
+- Fallback still exists only for exceptional cases:
+  - unresolved IDs
+  - `runEmergencyTurn()` failure
+  - Featherless emergency fallback failure then `voiceFallback(...)`
+- Did not change `repositoryCallTurn`, `runEmergencyTurn`, `/api/call/turn`, caller_phone, SMS, transfer bridge, Mapbox MCP, GeoOps, dashboard UI, or multilingual behavior.
+
+Command results:
+
+- `git status`: completed successfully; working tree clean after the Phase 5 changes.
+- `git diff --stat`: completed successfully.
+- `npm run build`: passed. Next.js production build completed successfully for `/api/elevenlabs/webhook` and the rest of the app. Warnings noted: inferred workspace root from multiple lockfiles and deprecated `middleware` file convention.
+- `npm run test:run`: passed. `9` test files and `87` tests passed.
+- `npm run lint`: passed with warnings only. `0` errors, `6` warnings:
+  - `app/api/twilio/dial-result/route.ts`: unused `buildTwimlConnectElevenLabs`
+  - `components/map/CommandMap.tsx`: unused `awaitingLocationCount`, `mappedResponderCount`, `modeLabel`, `modeTone`
+  - `lib/ai/toolResults.ts`: unused `GeoJsonGeometry`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 6 can begin by fixing the `caller_phone` lifecycle so SMS has a reliable default recipient for live calls.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
-
+Next phase should focus only on caller phone persistence and SMS recipient lookup reliability. It should not implement Mapbox MCP, operator assignment, GeoOps, dashboard AI trace, or multilingual polish.
 ---
 
 ## Phase 6 — Fix caller_phone Lifecycle for SMS
@@ -1070,3 +1100,4 @@ None yet.
 ---
 
 *End of execution log template.*
+
