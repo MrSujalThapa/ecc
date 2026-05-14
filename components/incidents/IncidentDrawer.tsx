@@ -3,7 +3,10 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { CallSession, Incident } from "@/lib/types";
 import type { OperatorActions } from "@/lib/data/operatorActions";
+import { AITracePanel } from "@/components/incidents/AITracePanel";
+import { IncidentTimeline } from "@/components/incidents/IncidentTimeline";
 import { MissingFieldsChecklist } from "@/components/incidents/MissingFieldsChecklist";
+import { MultilingualTracePanel } from "@/components/incidents/MultilingualTracePanel";
 import { CallControlPanel } from "@/components/voice/CallControlPanel";
 import { LiveTranscriptPanel } from "@/components/voice/LiveTranscriptPanel";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
@@ -191,6 +194,21 @@ function IncidentDrawerContent({
               <Section title="Missing fields">
                 <MissingFieldsChecklist fields={incident.missing_fields} />
               </Section>
+
+              <AITracePanel
+                incident={incident}
+                activeCallSession={activeCallSession}
+              />
+
+              <MultilingualTracePanel
+                incident={incident}
+                activeCallSession={activeCallSession}
+              />
+
+              <IncidentTimeline
+                incident={incident}
+                activeCallSession={activeCallSession}
+              />
             </div>
           ) : null}
 
@@ -198,6 +216,7 @@ function IncidentDrawerContent({
             <div className="space-y-5">
               <CallControlPanel
                 incident={incident}
+                activeCallSession={activeCallSession}
                 operatorActions={operatorActions}
                 onActionComplete={onActionComplete}
               />

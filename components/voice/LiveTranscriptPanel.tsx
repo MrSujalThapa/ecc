@@ -3,6 +3,7 @@
 import type { Incident } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TranscriptEvent } from "@/lib/types";
+import { buildMultilingualSummary } from "@/lib/dashboard/buildMultilingualSummary";
 import {
   fetchTranscriptEventsForIncident,
   isSupabaseTranscriptSourceAvailable,
@@ -157,6 +158,15 @@ export function LiveTranscriptPanel({ incident }: LiveTranscriptPanelProps) {
     [events],
   );
 
+  const multilingualSummary = useMemo(
+    () =>
+      buildMultilingualSummary({
+        incident,
+        transcriptEvents: sortedEvents,
+      }),
+    [incident, sortedEvents],
+  );
+
   const handleExportTranscript = useCallback(() => {
     if (sortedEvents.length === 0) return;
     const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
@@ -175,26 +185,45 @@ export function LiveTranscriptPanel({ incident }: LiveTranscriptPanelProps) {
       </h3>
       <div className="space-y-3 rounded-2xl border border-white/10 bg-[#040f16] p-4 text-sm text-slate-300">
         {canUseRealtime && visibility.showTranscriptInfrastructure ? (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-              Live transcript
-            </p>
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                state === "ready"
-                  ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                Live transcript
+              </p>
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  state === "ready"
+                    ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
+                    : state === "loading"
+                      ? "border-cyan-300/30 bg-cyan-500/10 text-cyan-100"
+                      : "border-slate-600/30 bg-[#000814]/30 text-slate-300"
+                }`}
+                title="Supabase transcript_events subscription (if configured)"
+              >
+                {state === "ready"
+                  ? "Connected"
                   : state === "loading"
-                    ? "border-cyan-300/30 bg-cyan-500/10 text-cyan-100"
-                    : "border-slate-600/30 bg-[#000814]/30 text-slate-300"
-              }`}
-              title="Supabase transcript_events subscription (if configured)"
-            >
-              {state === "ready"
-                ? "Connected"
-                : state === "loading"
-                  ? "Connecting"
-                  : "Unavailable"}
-            </span>
+                    ? "Connecting"
+                    : "Unavailable"}
+              </span>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[#000814]/40 p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                Multilingual status
+              </p>
+              <p className="mt-1 text-sm text-slate-100">
+                {multilingualSummary.translation_status.value}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {multilingualSummary.caller_language.label}:{" "}
+                {multilingualSummary.caller_language.value}
+              </p>
+              {multilingualSummary.notes.length > 0 ? (
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  {multilingualSummary.notes[0]}
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -217,11 +246,24 @@ export function LiveTranscriptPanel({ incident }: LiveTranscriptPanelProps) {
                   </span>
                   <span>{new Date(event.created_at).toLocaleTimeString()}</span>
                 </div>
-                <p className="text-sm leading-5 text-slate-100">{event.text}</p>
-                {event.translated_text ? (
-                  <p className="text-xs text-slate-400">
-                    {event.translated_text}
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Transcript
+                    {event.language?.trim()
+                      ? ` · ${event.language.trim()}`
+                      : ""}
                   </p>
+                  <p className="text-sm leading-5 text-slate-100">{event.text}</p>
+                </div>
+                {event.translated_text ? (
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      English translation
+                    </p>
+                    <p className="text-xs leading-5 text-slate-400">
+                      {event.translated_text}
+                    </p>
+                  </div>
                 ) : null}
               </div>
             ))}

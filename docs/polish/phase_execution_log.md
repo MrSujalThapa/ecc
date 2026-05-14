@@ -1149,13 +1149,13 @@ Next phase should focus on surfacing provider/tool/validation/transfer metadata 
 
 ---
 
-## Phase 16 — Add AI Trace Panel
+## Phase 16 ? Add AI Trace Panel
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1163,44 +1163,72 @@ Incident drawer shows provider, fallback status, tools used, validation summary,
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added a small AI Trace panel to the incident drawer triage tab.
+- [x] Added a pure summary helper and focused tests for honest available/unavailable AI metadata rendering.
 
 ### Files Changed
 
+- `components/incidents/IncidentDrawer.tsx`
+- `components/incidents/AITracePanel.tsx`
+- `lib/dashboard/buildAITraceSummary.ts`
+- `lib/dashboard/buildAITraceSummary.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 141 tests across 19 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added an honest AI Trace panel inside the incident drawer triage tab.
+- Added `AITracePanel` as a collapsible AI/runtime metadata section.
+- Added `buildAITraceSummary` as a pure helper so the panel only reflects data the drawer actually has.
+- The panel shows available metadata for:
+  - recommended action
+  - next AI question
+  - operator-required / escalation signals
+  - transfer status
+  - location confidence
+  - model confidence when available
+  - missing-field state
+  - collected-field state
+  - updated-by metadata
+- When deeper runtime/tool/provider trace data is not available, the panel explicitly says detailed runtime trace is not available in the drawer yet.
+- No hardcoded provider/tool claims were added.
+- No backend/runtime, GeoOps, SMS, transfer, ElevenLabs, Mapbox, or dashboard map behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildAITraceSummary.test.ts`.
+- Covered:
+  - honest unavailable state with missing session/trace data
+  - rendering available recommendation/escalation/confidence values
+  - safe handling of empty missing/collected fields
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 17 can begin by adding the tool/action timeline.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should build a chronological timeline using available incident/session/audit/trace data. It should not implement SMS/transfer UI polish, GeoOps cluster-source display, multilingual UI, or backend behavior changes.
 
 ---
 
-## Phase 17 — Add Tool/Action Timeline
+## Phase 17 ? Add Tool/Action Timeline
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1208,44 +1236,78 @@ Visual timeline for incident lifecycle (start, transcript, triage, tools, locati
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added a compact incident timeline to the drawer triage tab.
+- [x] Added a pure timeline helper and focused deterministic timeline tests.
 
 ### Files Changed
 
+- `components/incidents/IncidentDrawer.tsx`
+- `components/incidents/IncidentTimeline.tsx`
+- `lib/dashboard/buildIncidentTimeline.ts`
+- `lib/dashboard/buildIncidentTimeline.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` ? passed  
+`npm.cmd run test:run` ? passed, 146 tests across 20 files  
+`npm.cmd run lint` ? passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added an honest incident timeline inside the drawer triage tab.
+- Added `IncidentTimeline` as a compact collapsible lifecycle timeline.
+- Added `buildIncidentTimeline` as a pure helper that derives chronological events from incident and optional active call session data.
+- Timeline shows available lifecycle events for:
+  - incident created
+  - current status
+  - urgency / priority known
+  - location state available
+  - recommendation available
+  - missing fields identified
+  - structured fields captured
+  - operator requirement evaluated
+  - escalation flagged
+  - transfer status recorded
+  - next AI question queued
+  - incident updated
+- Timeline explicitly notes that detailed tool trace is not available in the drawer yet.
+- No provider/tool/Mapbox MCP/Gemma/Featherless claims are fabricated.
+- No backend, runtime, GeoOps, SMS, transfer, ElevenLabs, or map behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildIncidentTimeline.test.ts`.
+- Covered:
+  - created/updated timestamp events
+  - status/urgency/operator/location/recommendation events
+  - transfer/escalation/next-question events from active call session
+  - safe handling of missing/null data
+  - no fabricated tool/provider claims
+  - deterministic sorting
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 18 can begin by improving SMS and transfer UI states.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on operator-facing SMS/transfer status clarity. It should not change backend transfer execution, GeoOps cluster-source display, multilingual UI, Mapbox MCP, or triage/runtime behavior unless a tiny type-safe frontend mapping is required.
 
 ---
 
 ## Phase 18 — Improve SMS and Transfer UI States
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1253,44 +1315,81 @@ Operator UI shows caller phone, SMS recipient, sent/stub/error state, transfer r
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added pure `buildSmsStatusView()` and `buildTransferStatusView()` helpers in `buildOperatorCommStatus`.
+- [x] Wired `activeCallSession` from `IncidentDrawer` into `CallControlPanel` and surfaced SMS/transfer status in the UI.
 
 ### Files Changed
 
+- `components/voice/CallControlPanel.tsx`
+- `components/incidents/IncidentDrawer.tsx`
+- `lib/dashboard/buildOperatorCommStatus.ts`
+- `lib/dashboard/buildOperatorCommStatus.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 152 tests across 21 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added pure `buildSmsStatusView()` and `buildTransferStatusView()` helpers.
+- `CallControlPanel` now accepts `activeCallSession`.
+- `IncidentDrawer` now passes `activeCallSession` into `CallControlPanel`.
+- Operators can now see whether caller phone / SMS recipient data is available.
+- SMS state is now shown clearly:
+  - ready to send
+  - missing recipient
+  - sent
+  - not sent / provider unavailable
+  - error
+- Transfer/escalation state is now shown clearly from existing incident/session data:
+  - operator required / not required / unknown
+  - escalation flagged / not flagged / unavailable
+  - no active transfer
+  - requested
+  - in progress
+  - completed
+  - failed
+- Last SMS outcome is stored locally for honest status rendering.
+- UI does not imply actual transfer execution unless session status indicates it.
+- No backend SMS behavior changed.
+- No backend transfer behavior changed.
+- No triage/runtime, ElevenLabs, Mapbox MCP, GeoOps, or multilingual behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildOperatorCommStatus.test.ts`.
+- Covered:
+  - missing recipient
+  - sent
+  - stub/not sent
+  - error
+  - honest transfer-state mapping
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 19 can begin by showing backend GeoOps cluster source in the dashboard/map/cluster UI.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on making backend GeoOps cluster provenance visible. It should not change SMS/transfer behavior, multilingual UI, or backend runtime behavior.
 
 ---
 
 ## Phase 19 — Show Backend GeoOps Cluster Source
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1298,44 +1397,70 @@ Cluster drawer/map indicates backend GeoOps vs client-derived fallback clusters.
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Tagged clusters with backend vs client fallback provenance and preserved persisted `cluster_id` / `priority_score` in clustering.
+- [x] Surfaced honest source badge, description, and priority in `ClusterDrawer` via `buildClusterSourceView`.
 
 ### Files Changed
 
+- `lib/map/clustering.ts`
+- `components/incidents/ClusterDrawer.tsx`
+- `lib/dashboard/buildClusterSourceView.ts`
+- `lib/map/clustering.test.ts`
+- `lib/dashboard/buildClusterSourceView.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 159 tests across 23 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- `deriveSurgeClusters()` now preserves persisted backend `cluster_id` values.
+- Clusters backed by persisted incident `cluster_id` values are marked `source: "backend_geoops"`.
+- Backend-backed clusters now get cluster-level `priority_score`.
+- Coordinate/grid-derived clusters are marked `source: "client_fallback"`.
+- Mock fallback clusters are marked `source: "client_fallback"`.
+- Added `buildClusterSourceView()` for honest cluster source label/explanation mapping.
+- `ClusterDrawer` now shows:
+  - source badge
+  - source description
+  - `priority_score` when available
+- Backend-backed clusters display as `Backend GeoOps` only when they come from a real persisted incident `cluster_id`.
+- Client-derived clusters display as `Client fallback` and explain that they are visualization-derived.
+- Missing source maps to `Unknown source`.
+- Existing cluster selection, drawer behavior, map layers, and fallback clustering remain intact.
+- No `/api/surge/analyze`, runtime, SMS, transfer, ElevenLabs, or Mapbox MCP behavior changed.
+
+### Tests
+
+- Added/updated `lib/map/clustering.test.ts`.
+- Added `lib/dashboard/buildClusterSourceView.test.ts`.
+- Covered backend cluster provenance, client fallback provenance, missing source mapping, and priority score rendering/source behavior.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 20 can begin by adding multilingual demo visibility.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on displaying caller language/original transcript/English transcript or summary/AI reply language where available. It should not change backend translation behavior unless a tiny frontend-safe mapping is absolutely required.
 
 ---
 
 ## Phase 20 — Add Multilingual Demo Visibility
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1343,44 +1468,74 @@ Dashboard/demo surfaces caller language, original transcript, English summary/tr
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `buildMultilingualSummary` and wired `MultilingualTracePanel` into the drawer triage tab.
+- [x] Clarified transcript row labeling in `LiveTranscriptPanel` and added focused multilingual summary tests.
 
 ### Files Changed
 
+- `lib/dashboard/buildMultilingualSummary.ts`
+- `components/incidents/MultilingualTracePanel.tsx`
+- `components/incidents/IncidentDrawer.tsx`
+- `components/voice/LiveTranscriptPanel.tsx`
+- `lib/dashboard/buildMultilingualSummary.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 165 tests across 24 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- Added conservative multilingual summary logic using:
+  - `TranscriptEvent.language`
+  - `TranscriptEvent.translated_text`
+  - `incident.collected_fields.caller_language`
+- Added `MultilingualTracePanel` to the incident drawer triage tab.
+- The drawer now shows multilingual visibility fields for:
+  - caller language
+  - translation status
+  - original caller transcript availability
+  - English transcript availability
+  - AI reply language availability
+  - operator-facing English summary availability
+- When multilingual data is missing, the UI explicitly says multilingual details are not available yet.
+- `LiveTranscriptPanel` now labels transcript rows more clearly:
+  - Transcript
+  - language code when present
+  - English translation only when `translated_text` exists
+- No IBM/watsonx usage is claimed unless data explicitly supports it.
+- No backend translation behavior changed.
+- No ElevenLabs, triage/runtime, Mapbox MCP, SMS/transfer, GeoOps, or cluster-source behavior changed.
+
+### Tests
+
+- Added `lib/dashboard/buildMultilingualSummary.test.ts`.
+- Covered missing multilingual data, caller language, translated text availability, no fake translation/provider claims, and null/missing field safety.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 21 can begin by final hardening, final demo script, and final verification checklist.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should freeze feature work, run final verification, create the final demo script/checklist, and document remaining post-Phase-21 backlog such as Safe Transfer Execution.
 
 ---
 
 ## Phase 21 — Final Hardening, Tests, and Demo Script
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1388,34 +1543,42 @@ Produce `docs/polish/final_demo_script.md`, `docs/polish/final_verification_chec
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Added `docs/polish/final_demo_script.md` and `docs/polish/final_verification_checklist.md` with demo narrative, verification steps, honest limitations, and post–Phase 21 backlog.
+- [x] Ran full verification commands (`npm.cmd run build`, `npm.cmd run test:run`, `npm.cmd run lint`) and recorded outcomes below.
 
 ### Files Changed
 
+- `docs/polish/final_demo_script.md`
+- `docs/polish/final_verification_checklist.md`
+- `docs/polish/master_project_plan.md`
+- `docs/polish/phase_execution_log.md`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed (Next.js production build succeeded; Turbopack inferred workspace root / multiple lockfiles warning; middleware deprecation notice)  
+`npm.cmd run test:run` — passed, **165 tests** across **24** test files  
+`npm.cmd run lint` — passed, **0 errors** and **6** pre-existing warnings in `app/api/twilio/dial-result/route.ts`, `components/map/CommandMap.tsx`, `lib/ai/toolResults.ts`
 
 ### Result
 
-Not started.
+- Delivered sponsor-facing **demo script** covering overview, polish highlights (phases 3–20), dashboard-first flow, optional PSTN flow, simulation fallback, expected observations, technical callouts (unified runtime, EL **`say_to_caller`**, Mapbox MCP geocode fallback, SMS/recipient honesty, advisory transfer + assignment engine, GeoOps cluster provenance, AI Trace, timeline, SMS/transfer UI, multilingual visibility), and **known limitations**.
+- Delivered **verification checklist**: branch/env checks, automated CI slots filled with Phase 21 results, manual dashboard/call/SMS/geocode/cluster/multilingual sections, fallback honesty, **Post–Phase 21 backlog** (Safe Transfer Execution bullets + platform items).
+- Added concise **Post–Phase 21 backlog** subsection to `master_project_plan.md` after Phase 21 table (pointer to checklist for detail).
+- **Master-plan Verified criterion** (two independent readers run end-to-end demo script without blockers): **not executed in this session** — checklist dual-reader verification remains pending; Phase 21 marked **Completed**, not **Verified**.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Polish sprint scope per phases 1–21 is closed. Remaining roadmap items live under **Post–Phase 21 backlog** in `docs/polish/final_verification_checklist.md` and `docs/polish/master_project_plan.md`.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Execute dual-reader verification from `docs/polish/final_demo_script.md` (Section **Main demo flow**); check boxes in `docs/polish/final_verification_checklist.md`. When satisfied, record **Verified** in this log per legend. Prioritize **Safe Transfer Execution** before treating transfer UX as production-complete.
 
 ---
 
