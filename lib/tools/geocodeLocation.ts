@@ -11,6 +11,7 @@ import type {
   GeocodeLocationData,
   ToolExecutionSource,
 } from "@/lib/ai/toolResults";
+import { geocodeWithMapboxMcp } from "@/lib/tools/mapbox/geocodeWithMapboxMcp";
 import {
   LANDMARKS,
   TORONTO_CENTER,
@@ -30,7 +31,7 @@ export type GeocodeLocationOutput = {
   source: ToolExecutionSource;
 };
 
-export const geocodeLocation = async (
+const fallbackGeocodeLocation = async (
   args: GeocodeLocationArgs
 ): Promise<GeocodeLocationOutput> => {
   const needle = args.location_text.toLowerCase();
@@ -58,6 +59,29 @@ export const geocodeLocation = async (
       confidence: 0.35,
       provider_place_id: null,
     },
-    source: "mock",
+      source: "mock",
   };
+};
+
+export const geocodeLocation = async (
+  args: GeocodeLocationArgs
+): Promise<GeocodeLocationOutput> => {
+  const mcpResult = await geocodeWithMapboxMcp(args);
+
+  if (mcpResult.status === "success" && mcpResult.coordinates) {
+    return {
+      data: {
+        normalized_location: mcpResult.place_name ?? mcpResult.query,
+        coordinates: {
+          lat: mcpResult.coordinates.lat,
+          lng: mcpResult.coordinates.lng,
+        },
+        confidence: mcpResult.confidence ?? 1,
+        provider_place_id: mcpResult.provider_place_id ?? null,
+      },
+      source: "mapbox_mcp",
+    };
+  }
+
+  return fallbackGeocodeLocation(args);
 };
