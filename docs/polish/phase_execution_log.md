@@ -1385,11 +1385,11 @@ Next phase should focus on making backend GeoOps cluster provenance visible. It 
 
 ## Phase 19 — Show Backend GeoOps Cluster Source
 
-**Status:** Not Started  
+**Status:** Completed  
 **Owner:** Unassigned  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -1397,34 +1397,60 @@ Cluster drawer/map indicates backend GeoOps vs client-derived fallback clusters.
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Tagged clusters with backend vs client fallback provenance and preserved persisted `cluster_id` / `priority_score` in clustering.
+- [x] Surfaced honest source badge, description, and priority in `ClusterDrawer` via `buildClusterSourceView`.
 
 ### Files Changed
 
+- `lib/map/clustering.ts`
+- `components/incidents/ClusterDrawer.tsx`
+- `lib/dashboard/buildClusterSourceView.ts`
+- `lib/map/clustering.test.ts`
+- `lib/dashboard/buildClusterSourceView.test.ts`
+
 ### Commands Run
 
-```bash
-# Add commands and results here
-```
+`npm.cmd run build` — passed  
+`npm.cmd run test:run` — passed, 159 tests across 23 files  
+`npm.cmd run lint` — passed, 0 errors and 6 pre-existing warnings
 
 ### Result
 
-Not started.
+- `deriveSurgeClusters()` now preserves persisted backend `cluster_id` values.
+- Clusters backed by persisted incident `cluster_id` values are marked `source: "backend_geoops"`.
+- Backend-backed clusters now get cluster-level `priority_score`.
+- Coordinate/grid-derived clusters are marked `source: "client_fallback"`.
+- Mock fallback clusters are marked `source: "client_fallback"`.
+- Added `buildClusterSourceView()` for honest cluster source label/explanation mapping.
+- `ClusterDrawer` now shows:
+  - source badge
+  - source description
+  - `priority_score` when available
+- Backend-backed clusters display as `Backend GeoOps` only when they come from a real persisted incident `cluster_id`.
+- Client-derived clusters display as `Client fallback` and explain that they are visualization-derived.
+- Missing source maps to `Unknown source`.
+- Existing cluster selection, drawer behavior, map layers, and fallback clustering remain intact.
+- No `/api/surge/analyze`, runtime, SMS, transfer, ElevenLabs, or Mapbox MCP behavior changed.
+
+### Tests
+
+- Added/updated `lib/map/clustering.test.ts`.
+- Added `lib/dashboard/buildClusterSourceView.test.ts`.
+- Covered backend cluster provenance, client fallback provenance, missing source mapping, and priority score rendering/source behavior.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 20 can begin by adding multilingual demo visibility.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on displaying caller language/original transcript/English transcript or summary/AI reply language where available. It should not change backend translation behavior unless a tiny frontend-safe mapping is absolutely required.
 
 ---
 
