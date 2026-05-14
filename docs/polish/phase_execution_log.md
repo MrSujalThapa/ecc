@@ -459,11 +459,11 @@ Next phase should focus only on making transfer recommendation visible/structure
 
 ## Phase 7 — Wire Triage Transfer Recommendation
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -471,35 +471,61 @@ Emit clean transfer recommendation fields from triage (`transfer_recommended`, `
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Populated runtime transfer recommendation metadata in `runEmergencyTurn()` without changing route payloads or transfer side effects.
+- [x] Added focused wrapper tests for transfer recommendation derivation and error propagation.
 
 ### Files Changed
+
+- `lib/runtime/runEmergencyTurn.ts`
+- `lib/runtime/runEmergencyTurn.test.ts`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 7 is completed and not yet verified.
+
+- `runEmergencyTurn()` now returns advisory `transfer_recommendation` metadata.
+- Recommendation is populated when:
+  - actions contain `transfer_to_operator`
+  - `call_session.operator_transfer_status` is `requested` or `transferring`
+  - `call_session.should_escalate === true` and `incident.operator_required === true`
+- This is advisory only.
+- No Twilio transfer behavior changed.
+- No route response shape changed.
+- No SMS, caller_phone, Mapbox MCP, GeoOps, dashboard UI, or multilingual behavior changed.
+- Repository errors still propagate unchanged.
+
+### Tests
+
+- Added `lib/runtime/runEmergencyTurn.test.ts`.
+- Covered transfer action recommendation, requested transfer status recommendation, escalation-only recommendation, null recommendation, and error propagation.
+
+Command results:
+
+- `npm run build` — passed.
+- `npm run test:run` — passed, `100` tests across `12` files.
+- `npm run lint` — passed, `0` errors and `6` existing warnings.
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 8 can begin by scaffolding the Mapbox MCP broker and backend-safe tool layer.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
-
+Next phase should focus only on Mapbox MCP/tool scaffolding. It should not implement operator assignment, GeoOps persistence, dashboard AI trace, or multilingual polish yet.
 ---
 
 ## Phase 8 — Scaffold Mapbox MCP Broker and Tool Layer
@@ -1133,5 +1159,6 @@ None yet.
 ---
 
 *End of execution log template.*
+
 
 
