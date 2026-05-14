@@ -771,13 +771,13 @@ Phase 11 can begin by adding stronger tool result provenance across runtime/tool
 Next phase should focus on tool result provenance. Do not implement operator assignment, GeoOps persistence, dashboard UI, SMS, transfer bridge, or multilingual changes yet.
 
 ---
-## Phase 11 — Add Tool Result Provenance
+## Phase 11 ? Add Tool Result Provenance
 
-**Status:** Not Started  
-**Owner:** Unassigned  
+**Status:** Completed  
+**Owner:** Codex  
 **Branch:** polish/full-agent-runtime-polish  
-**Started:**  
-**Completed:**
+**Started:** 2026-05-14  
+**Completed:** 2026-05-14
 
 ### Goal
 
@@ -785,37 +785,78 @@ Every tool call records auditable provenance (name, input, output, status, sourc
 
 ### Substeps Completed
 
-- [ ]
-- [ ]
+- [x] Extended `ToolResult` additively with centralized provenance fields without changing the tool loop behavior.
+- [x] Updated dispatcher/test coverage so tool results are richer and more inspectable across success and failure paths.
 
 ### Files Changed
+
+- `lib/ai/toolResults.ts`
+- `lib/ai/executeAllowedToolRequests.ts`
+- `lib/ai/executeAllowedToolRequests.test.ts`
+- `lib/tools/smsDraft.ts`
 
 ### Commands Run
 
 ```bash
-# Add commands and results here
+npm run build
+npm run test:run
+npm run lint
 ```
 
 ### Result
 
-Not started.
+Phase 11 is completed and not yet verified.
+
+- `ToolResult` now preserves existing fields and adds:
+  - `status`
+  - `args`
+  - `latency_ms`
+- `ToolExecutionSource` now also allows:
+  - `template`
+  - `unknown`
+- `executeAllowedToolRequests()` now centrally fills provenance for every result path:
+  - success/error status
+  - normalized/raw args
+  - latency_ms
+  - existing created_at
+- `smsDraft()` now reports `source: "template"` instead of mock-style provenance.
+- No runtime behavior, route behavior, dashboard behavior, transfer behavior, GeoOps behavior, SMS sending behavior, or multilingual behavior changed.
+
+### Tests
+
+- Expanded `lib/ai/executeAllowedToolRequests.test.ts`.
+- Covered:
+  - successful provenance fields
+  - unknown-tool provenance
+  - invalid-args provenance
+  - `mapbox_mcp` geocode provenance on mocked MCP success
+  - fallback geocode provenance on mocked MCP no-match
+  - `sms_draft` template provenance
+
+Command results:
+
+- `npm run build` ? passed.
+- `npm run test:run` ? passed, `122` tests across `16` files.
+- `npm run lint` ? passed, `0` errors and `6` pre-existing unrelated warnings in:
+  - `app/api/twilio/dial-result/route.ts`
+  - `components/map/CommandMap.tsx`
+  - `lib/ai/toolResults.ts`
 
 ### Issues / Blockers
 
-None yet.
+None.
 
 ### Required Changes for Next Phase
 
-None yet.
+Phase 12 can begin by building a deterministic operator assignment engine.
 
 ### Commit Hashes
 
 ### Handoff Notes
 
-None yet.
+Next phase should focus on operator assignment logic only. Do not implement GeoOps persistence, dashboard UI, SMS sending changes, Mapbox MCP changes, transfer bridge behavior, or multilingual polish yet.
 
 ---
-
 ## Phase 12 — Build Operator Assignment Engine
 
 **Status:** Not Started  
