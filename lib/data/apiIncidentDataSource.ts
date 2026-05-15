@@ -21,11 +21,10 @@ async function fetchIncidentFeed(): Promise<IncidentFeedResult> {
 
     if (apiIncidents.length === 0) {
       return {
-        incidents: dashboardFallbackIncidents,
-        usingFallback: true,
+        incidents: [],
+        usingFallback: false,
         state: "ready",
-        message:
-          "API returned no incidents, so schema-compatible demo data is shown.",
+        message: "No active incidents in the current incident source.",
       };
     }
 

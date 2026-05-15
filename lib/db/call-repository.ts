@@ -1413,17 +1413,7 @@ const repositorySimulateSeed = async (input: {
   const client = getServiceRoleClient();
 
   if (input.reset_existing) {
-    if (!client) {
-      resetDemoStore();
-    } else {
-      const { error } = await client
-        .from("incidents")
-        .delete()
-        .gte("created_at", "1970-01-01T00:00:00Z");
-      if (error) {
-        throw new Error(error.message);
-      }
-    }
+    await clearSimulationIncidentSource(client);
   }
 
   const skip = input.offset ?? 0;
@@ -1482,6 +1472,24 @@ const repositorySimulateSeed = async (input: {
     });
   }
   return { created_incidents, created_call_sessions };
+};
+
+const clearSimulationIncidentSource = async (
+  client: ReturnType<typeof getServiceRoleClient>,
+): Promise<void> => {
+  if (!client) {
+    resetDemoStore();
+    return;
+  }
+
+  const { error } = await client
+    .from("incidents")
+    .delete()
+    .gte("created_at", "1970-01-01T00:00:00Z");
+
+  if (error) {
+    throw new Error(error.message);
+  }
 };
 
 export const repositorySimulateDisaster = async (input: {

@@ -15,6 +15,11 @@ type DemoControlsProps = {
   onAfterSimulation: () => Promise<void>;
   onRefreshIncidents: () => Promise<void>;
   onResetView: () => void;
+  onSimulationLifecycle?: (event: {
+    phase: "start" | "success" | "error";
+    kind: "disaster" | "world_cup" | "clear";
+    resetExisting: boolean;
+  }) => void;
   mode: AppMode | "all";
   setMode: (mode: AppMode | "all") => void;
 };
@@ -23,6 +28,7 @@ export const DemoControls = ({
   onAfterSimulation,
   onRefreshIncidents,
   onResetView,
+  onSimulationLifecycle,
   mode,
   setMode,
 }: DemoControlsProps) => {
@@ -41,11 +47,21 @@ export const DemoControls = ({
   const handleDisaster = useCallback(async () => {
     setSimKind("disaster");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "disaster",
+      resetExisting,
+    });
     const r = await postSimulateDisaster({
       batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "disaster",
+        resetExisting,
+      });
       setBanner({
         tone: "error",
         text: `Disaster simulation failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -55,21 +71,36 @@ export const DemoControls = ({
     }
     setMode("disaster");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "disaster",
+      resetExisting,
+    });
     setBanner({
       tone: "ok",
       text: `Disaster simulation: created ${r.data.created_incidents.length} incident(s).`,
     });
     setSimKind("idle");
-  }, [onAfterSimulation, resetExisting, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, resetExisting, setMode]);
 
   const handleWorldCup = useCallback(async () => {
     setSimKind("world_cup");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "world_cup",
+      resetExisting,
+    });
     const r = await postSimulateWorldCup({
       batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "world_cup",
+        resetExisting,
+      });
       setBanner({
         tone: "error",
         text: `World Cup simulation failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -79,12 +110,17 @@ export const DemoControls = ({
     }
     setMode("world_cup");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "world_cup",
+      resetExisting,
+    });
     setBanner({
       tone: "ok",
       text: `World Cup simulation: created ${r.data.created_incidents.length} incident(s).`,
     });
     setSimKind("idle");
-  }, [onAfterSimulation, resetExisting, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, resetExisting, setMode]);
 
   const handleRefresh = useCallback(async () => {
     setSimKind("refresh");
@@ -108,11 +144,21 @@ export const DemoControls = ({
   const handleClearAllIncidents = useCallback(async () => {
     setSimKind("clear");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "clear",
+      resetExisting: true,
+    });
     const r = await postSimulateDisaster({
       batch_size: 0,
       reset_existing: true,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "clear",
+        resetExisting: true,
+      });
       setBanner({
         tone: "error",
         text: `Clear failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -122,12 +168,17 @@ export const DemoControls = ({
     }
     setMode("all");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "clear",
+      resetExisting: true,
+    });
     setBanner({
       tone: "ok",
       text: "All incidents cleared via simulate/disaster (reset_existing + batch_size 0).",
     });
     setSimKind("idle");
-  }, [onAfterSimulation, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, setMode]);
 
   const handleResetView = useCallback(() => {
     setBanner(null);

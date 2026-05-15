@@ -422,6 +422,28 @@ describe("call-repository (in-memory / no Supabase)", () => {
       ).toBe(true);
       expect(withoutOp.every((i) => i.status !== "human_active")).toBe(true);
     });
+
+    it("replaces a 100-incident disaster run with a fresh 50 when reset_existing is true", async () => {
+      await repositorySimulateDisaster({
+        reset_existing: true,
+        offset: 0,
+        batch_size: 100,
+        maxCap: 100,
+      });
+      expect(getDemoStoreSizes().incidents).toBe(100);
+
+      const out = await repositorySimulateDisaster({
+        reset_existing: true,
+        offset: 0,
+        batch_size: 50,
+        maxCap: 100,
+      });
+
+      expect(out.created_incidents).toHaveLength(50);
+      expect(out.created_call_sessions).toHaveLength(50);
+      expect(getDemoStoreSizes().incidents).toBe(50);
+      expect(getDemoStoreSizes().callSessions).toBe(50);
+    });
   });
 
   describe("repositorySimulateWorldCup", () => {

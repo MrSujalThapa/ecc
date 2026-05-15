@@ -22,6 +22,10 @@ import {
   DashboardPersonaProvider,
   useDashboardPersona,
 } from "@/components/dashboard/DashboardPersonaContext";
+import {
+  getSimulationResetState,
+  type SimulationLifecycleEvent,
+} from "@/lib/dashboard/simulationLifecycleState";
 import { apiOperatorActions } from "@/lib/data/apiOperatorActions";
 import { respondersClient } from "@/lib/data/respondersClient";
 import {
@@ -41,7 +45,6 @@ import {
 } from "@/lib/data/dashboardIncidentFeed";
 
 type LoadState = "loading" | IncidentFeedState;
-
 const applyIncidentFeedResult = (
   result: IncidentFeedResult,
   setIncidents: (incidents: Incident[]) => void,
@@ -115,6 +118,7 @@ export function DashboardShell() {
   const [clientMounted, setClientMounted] = useState(false);
   const selectionRef = useRef<string | null>(null);
   const realtimeBootstrappedRef = useRef(false);
+  const explicitClearRef = useRef(false);
 
   const incidentDataSource = useMemo(
     () =>
@@ -138,6 +142,25 @@ export function DashboardShell() {
     setCallSessionsForSelected([]);
   }, []);
 
+  const clearDashboardIncidentState = useCallback(
+    (nextState: ReturnType<typeof getSimulationResetState>) => {
+      if (!nextState) {
+        return;
+      }
+      explicitClearRef.current = true;
+      setIncidents(nextState.incidents);
+      setUsingFallback(nextState.usingFallback);
+      setLoadState(nextState.loadState);
+      setLoadMessage(nextState.loadMessage);
+      if (nextState.clearSelection) {
+        setSelectedIncidentId(null);
+        setSelectedClusterId(null);
+        setCallSessionsForSelected([]);
+      }
+    },
+    [],
+  );
+
   const selectIncident = useCallback((incidentId: string) => {
     setSelectedIncidentId(incidentId);
     setSelectedClusterId(null);
@@ -150,6 +173,9 @@ export function DashboardShell() {
 
   const refetchIncidentsQuiet = useCallback(async () => {
     const result = await incidentDataSource.refreshIncidents();
+    if (explicitClearRef.current && result.incidents.length > 0) {
+      explicitClearRef.current = false;
+    }
     applyIncidentFeedResult(
       result,
       setIncidents,
@@ -164,6 +190,9 @@ export function DashboardShell() {
     setLoadMessage(null);
 
     const result = await incidentDataSource.refreshIncidents();
+    if (explicitClearRef.current && result.incidents.length > 0) {
+      explicitClearRef.current = false;
+    }
     applyIncidentFeedResult(
       result,
       setIncidents,
@@ -184,6 +213,9 @@ export function DashboardShell() {
       const result = await incidentDataSource.getInitialIncidents();
       if (ignore || realtimeBootstrappedRef.current) {
         return;
+      }
+      if (explicitClearRef.current && result.incidents.length > 0) {
+        explicitClearRef.current = false;
       }
       applyIncidentFeedResult(
         result,
@@ -248,6 +280,9 @@ export function DashboardShell() {
       unsubscribe = incidentDataSource.subscribeToIncidents(
         (nextIncidents) => {
           realtimeBootstrappedRef.current = true;
+          if (explicitClearRef.current && nextIncidents.length > 0) {
+            explicitClearRef.current = false;
+          }
           startTransition(() => {
             setIncidents(nextIncidents);
             setUsingFallback(false);
@@ -377,6 +412,16 @@ export function DashboardShell() {
     }
   }, [loadIncidents]);
 
+  const handleSimulationLifecycle = useCallback(
+    (event: SimulationLifecycleEvent) => {
+      const nextState = getSimulationResetState(event);
+      if (nextState) {
+        clearDashboardIncidentState(nextState);
+      }
+    },
+    [clearDashboardIncidentState],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -439,6 +484,7 @@ export function DashboardShell() {
           onAfterSimulation={refetchIncidentsQuiet}
           onRefreshIncidents={loadIncidents}
           onResetView={resetDashboardView}
+          onSimulationLifecycle={handleSimulationLifecycle}
           mode={queueFilters.mode}
           setMode={setMode}
         />
