@@ -40,7 +40,10 @@ import {
 import { isoNow } from "@/lib/server/iso-now";
 import { newId } from "@/lib/server/ids";
 import { getMockResponders } from "@/lib/server/responders-mock-data";
-import { mergeSimulatedSurgeRow } from "@/lib/server/simulate-seed-enrichment";
+import {
+  getSimulatedSeedCallerText,
+  mergeSimulatedSurgeRow,
+} from "@/lib/server/simulate-seed-enrichment";
 import {
   buildSurgeGeoOpsAgentInput,
   priorityScoreFromSurgeRank,
@@ -90,6 +93,8 @@ const insertAudit = async (
   });
   if (error) throw new Error(error.message);
 };
+
+const REALISTIC_SIMULATION_MAX_BATCH = 10 as const;
 
 // --- Controlled two-pass tool loop for /api/call/turn ---
 
@@ -1403,14 +1408,119 @@ const persistSimulatedSeedEnrichment = async (
   return merged;
 };
 
-const repositorySimulateSeed = async (input: {
+type SimulationStrategy = "seeded" | "realistic";
+
+type RepositorySimulateInput = {
   mode: AppMode;
   batch_size?: number;
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
-}): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
+};
+
+const clampBatchSize = (value: number, maxCap: number): number =>
+  Math.min(Math.max(0, value), maxCap);
+
+const buildRealisticSimulationTexts = (
+  input: RepositorySimulateInput,
+): string[] => {
+  const { mode } = input;
+  if (mode !== "disaster" && mode !== "world_cup") {
+    return [];
+  }
+
+  const explicitTranscripts = (input.transcripts ?? [])
+    .map((text) => text.trim())
+    .filter((text) => text.length > 0);
+  if (explicitTranscripts.length > 0) {
+    const desiredCount = clampBatchSize(
+      input.batch_size ?? explicitTranscripts.length,
+      REALISTIC_SIMULATION_MAX_BATCH,
+    );
+    return explicitTranscripts.slice(0, desiredCount);
+  }
+
+  const selectedSeedIndices = input.seed_indices ?? [];
+  if (selectedSeedIndices.length > 0) {
+    const desiredCount = clampBatchSize(
+      input.batch_size ?? selectedSeedIndices.length,
+      REALISTIC_SIMULATION_MAX_BATCH,
+    );
+    return selectedSeedIndices
+      .slice(0, desiredCount)
+      .map((seedIndex) => getSimulatedSeedCallerText(mode, seedIndex));
+  }
+
+  const desiredCount = clampBatchSize(
+    input.batch_size ?? Math.min(3, REALISTIC_SIMULATION_MAX_BATCH),
+    REALISTIC_SIMULATION_MAX_BATCH,
+  );
+  const skip = input.offset ?? 0;
+  return Array.from({ length: desiredCount }, (_, index) =>
+    getSimulatedSeedCallerText(mode, skip + index),
+  );
+};
+
+const repositorySimulateRuntime = async (
+  input: RepositorySimulateInput,
+): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
   const client = getServiceRoleClient();
+
+  if (input.reset_existing) {
+    await clearSimulationIncidentSource(client);
+  }
+
+  const transcripts = buildRealisticSimulationTexts(input);
+  const created_incidents: Incident[] = [];
+  const created_call_sessions: CallSession[] = [];
+
+  for (const [index, transcript] of transcripts.entries()) {
+    const started = await repositoryCallStart({ mode: input.mode });
+    const turned = await repositoryCallTurn({
+      incident_id: started.incident_id,
+      call_session_id: started.call_session_id,
+      speaker: "caller",
+      text: transcript,
+      is_final: true,
+      source: "simulate",
+    });
+
+    created_incidents.push(turned.incident);
+    created_call_sessions.push(turned.call_session);
+
+    if (!client) {
+      newAuditLog({
+        incident_id: started.incident_id,
+        actor: "simulate",
+        action: `simulated_${input.mode}_realistic`,
+        patch: { batch_index: index, transcript },
+      });
+      continue;
+    }
+
+    await insertAudit(client, {
+      incident_id: started.incident_id,
+      actor: "simulate",
+      action: `simulated_${input.mode}_realistic`,
+      patch: { batch_index: index, transcript },
+    });
+  }
+
+  return { created_incidents, created_call_sessions };
+};
+
+const repositorySimulateSeed = async (
+  input: RepositorySimulateInput,
+): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
+  const client = getServiceRoleClient();
+  const strategy = input.simulation_strategy ?? "seeded";
+
+  if (strategy === "realistic") {
+    return repositorySimulateRuntime(input);
+  }
 
   if (input.reset_existing) {
     await clearSimulationIncidentSource(client);
@@ -1418,7 +1528,7 @@ const repositorySimulateSeed = async (input: {
 
   const skip = input.offset ?? 0;
   const requested = input.batch_size ?? Math.min(5, input.maxCap);
-  const count = Math.min(Math.max(0, requested), input.maxCap);
+  const count = clampBatchSize(requested, input.maxCap);
   const { mode } = input;
   const disasterBatchFor = (batchLocalIndex: number) =>
     mode === "disaster" ? { batchLocalIndex, batchSize: count } : undefined;
@@ -1497,6 +1607,9 @@ export const repositorySimulateDisaster = async (input: {
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
 }): Promise<SimulateDisasterResponse> => {
   const { created_incidents, created_call_sessions } = await repositorySimulateSeed({
     mode: "disaster",
@@ -1510,6 +1623,9 @@ export const repositorySimulateWorldCup = async (input: {
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
 }): Promise<SimulateWorldCupResponse> => {
   const { created_incidents, created_call_sessions } = await repositorySimulateSeed({
     mode: "world_cup",

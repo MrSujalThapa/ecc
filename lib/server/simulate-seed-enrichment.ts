@@ -974,6 +974,17 @@ const buildSeedTranscriptSnippets = (pick: Scenario, baseIso: string): Json[] =>
   ];
 };
 
+const scenarioForMode = (mode: Extract<AppMode, "disaster" | "world_cup">, seedIndex: number) =>
+  (mode === "disaster" ? DISASTER_SCENARIOS : WORLD_CUP_SCENARIOS)[
+    seedIndex %
+      (mode === "disaster" ? DISASTER_SCENARIOS.length : WORLD_CUP_SCENARIOS.length)
+  ]!;
+
+export const getSimulatedSeedCallerText = (
+  mode: Extract<AppMode, "disaster" | "world_cup">,
+  seedIndex: number,
+): string => scenarioForMode(mode, seedIndex).seed_caller_text;
+
 /**
  * Applies rotating scenario templates for disaster / world_cup simulate batches.
  * Other modes return inputs unchanged.
@@ -989,8 +1000,7 @@ export const mergeSimulatedSurgeRow = (
     return { incident, call_session: session };
   }
 
-  const scenarios = mode === "disaster" ? DISASTER_SCENARIOS : WORLD_CUP_SCENARIOS;
-  const pick = scenarios[seedIndex % scenarios.length]!;
+  const pick = scenarioForMode(mode, seedIndex);
   const j = simulateSeedJitter(seedIndex);
   const t = isoNow();
 

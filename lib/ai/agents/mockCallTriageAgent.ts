@@ -183,6 +183,96 @@ const findToolResult = <T>(
   ) as ToolResult<T> | undefined;
 };
 
+const ADDRESS_SUFFIX_PATTERN =
+  "(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|crescent|cres|way|parkway|pkwy)";
+const EXPLICIT_ADDRESS_PATTERN = new RegExp(
+  String.raw`\b\d{1,6}\s+[a-z0-9.'-]+(?:\s+[a-z0-9.'-]+){0,5}\s+${ADDRESS_SUFFIX_PATTERN}(?:\s+[nsew])?(?:,\s*[a-z][a-z\s.'-]+){0,2}`,
+  "i",
+);
+const INTERSECTION_PATTERN =
+  /\b[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\s*(?:&|and)\s*[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\b/i;
+
+const LOCATION_LANDMARKS = [
+  "cn tower",
+  "bmo field",
+  "union station",
+  "dana porter library",
+  "exhibition place",
+] as const;
+
+const NON_LOCATION_INTERSECTION_TOKENS = new Set([
+  "my",
+  "i",
+  "me",
+  "someone",
+  "somebody",
+  "there",
+  "really",
+  "very",
+  "am",
+  "is",
+  "are",
+]);
+
+type ExtractedLocation = {
+  location_text: string;
+  city_context?: string;
+  country_context?: string;
+};
+
+const normalizeSpacing = (value: string): string =>
+  value.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim();
+
+const isPlausibleIntersection = (value: string): boolean => {
+  const tokens = value
+    .split(/\s*(?:&|and)\s*/i)
+    .flatMap((part) => part.trim().split(/\s+/))
+    .map((token) => token.replace(/[^a-z]/gi, "").toLowerCase())
+    .filter(Boolean);
+  return (
+    tokens.length >= 2 &&
+    tokens.every((token) => !NON_LOCATION_INTERSECTION_TOKENS.has(token))
+  );
+};
+
+const extractSpecificLocation = (transcript: string): ExtractedLocation | null => {
+  const intersectionMatch = transcript.match(INTERSECTION_PATTERN)?.[0] ?? null;
+  const addressMatch = transcript.match(EXPLICIT_ADDRESS_PATTERN);
+  const rawLocation =
+    addressMatch?.[0] ??
+    LOCATION_LANDMARKS.find((landmark) => transcript.includes(landmark)) ??
+    (intersectionMatch && isPlausibleIntersection(intersectionMatch)
+      ? intersectionMatch
+      : null) ??
+    null;
+
+  if (!rawLocation) {
+    return null;
+  }
+
+  const location_text = normalizeSpacing(
+    rawLocation.replace(/[.?!]+$/g, ""),
+  );
+  const lowerLocation = location_text.toLowerCase();
+
+  const extracted: ExtractedLocation = { location_text };
+  if (lowerLocation.includes("waterloo")) {
+    extracted.city_context = "Waterloo";
+  } else if (lowerLocation.includes("toronto")) {
+    extracted.city_context = "Toronto";
+  }
+
+  if (
+    lowerLocation.includes("ontario") ||
+    lowerLocation.includes(", on") ||
+    lowerLocation.includes(" canada")
+  ) {
+    extracted.country_context = "Canada";
+  }
+
+  return extracted;
+};
+
 const geocodingDemoFirstPassDraft = (
   transcript: string,
   mode: AgentMode
@@ -285,6 +375,68 @@ const geocodingDemoSecondPassDraft = (
     },
     system_actions: [],
     say_to_caller: next_question,
+  };
+};
+
+const applyToolResolvedLocation = (
+  draft: RawDraft,
+  location: ExtractedLocation,
+  toolResults: readonly ToolResult[] | undefined,
+): RawDraft => {
+  const geocode = findToolResult<GeocodeLocationData>(
+    toolResults,
+    "geocode_location",
+  );
+
+  if (!toolResults || toolResults.length === 0) {
+    return {
+      ...draft,
+      tool_requests: [
+        {
+          tool: "geocode_location",
+          args: {
+            location_text: location.location_text,
+            city_context: location.city_context,
+            country_context: location.country_context,
+          },
+          reason:
+            "Caller provided a specific location that should be geocoded and preserved.",
+        },
+      ],
+      incident_patch: {
+        ...draft.incident_patch,
+        location: location.location_text,
+        location_status: "unknown",
+        location_confidence: undefined,
+        coordinates: undefined,
+      },
+    };
+  }
+
+  if (!geocode?.data) {
+    return {
+      ...draft,
+      tool_requests: [],
+      incident_patch: {
+        ...draft.incident_patch,
+        location: location.location_text,
+        location_status: "unknown",
+        location_confidence: undefined,
+        coordinates: undefined,
+      },
+    };
+  }
+
+  return {
+    ...draft,
+    tool_requests: [],
+    incident_patch: {
+      ...draft.incident_patch,
+      location: geocode.data.normalized_location,
+      location_status: "approximate_by_ai",
+      location_confidence: geocode.data.confidence,
+      coordinates: geocode.data.coordinates,
+    },
   };
 };
 
@@ -591,7 +743,7 @@ function unknownDraft(transcript: string, mode: AgentMode): RawDraft {
   };
 }
 
-function buildDraft(
+function buildBaseDraft(
   transcript: string,
   mode: AgentMode,
   toolResults: readonly ToolResult[] | undefined
@@ -684,6 +836,14 @@ export async function mockCallTriageAgent(
     .filter(Boolean);
   const fullTranscript = [...history, latest].join(" ");
   const mode: AgentMode = input.mode ?? "normal";
-  const draft = buildDraft(fullTranscript, mode, input.toolResults);
+  let draft = buildBaseDraft(fullTranscript, mode, input.toolResults);
+
+  if (!matchesAny(fullTranscript, KEYWORDS.geocodingDemo)) {
+    const location = extractSpecificLocation(fullTranscript);
+    if (location) {
+      draft = applyToolResolvedLocation(draft, location, input.toolResults);
+    }
+  }
+
   return validateTriageAgentOutput(draft);
 }
