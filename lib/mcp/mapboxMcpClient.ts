@@ -26,8 +26,8 @@ const buildDisabledResult = (
       : "disabled",
   message:
     availability.reason === "missing_access_token"
-      ? "Mapbox MCP is enabled but MAPBOX_ACCESS_TOKEN is missing."
-      : "Mapbox MCP is disabled. Enable MAPBOX_MCP_ENABLED=true to use it.",
+      ? "Mapbox MCP is enabled but MAPBOX_ACCESS_TOKEN is missing. Backend geocoding requires MAPBOX_MCP_ENABLED=true and MAPBOX_ACCESS_TOKEN; NEXT_PUBLIC_MAPBOX_TOKEN only renders the frontend map."
+      : "Mapbox MCP is disabled. Enable MAPBOX_MCP_ENABLED=true to use backend geocoding. NEXT_PUBLIC_MAPBOX_TOKEN only renders the frontend map.",
   raw: null,
 });
 

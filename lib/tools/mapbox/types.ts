@@ -50,4 +50,5 @@ export type MapboxGeocodeAdapterResultV2 = {
   provider_place_id?: string | null;
   raw?: unknown;
   error?: string;
+  selected_match_text?: string | null;
 };

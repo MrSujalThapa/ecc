@@ -143,7 +143,7 @@ export const DemoControls = ({
       });
       setBanner({
         tone: "error",
-        text: `Realistic geocode test failed (${r.status}): ${r.errorText.slice(0, 280)}`,
+        text: `Realistic geocode smoke test failed (${r.status}): ${r.errorText.slice(0, 280)}`,
       });
       setSimKind("idle");
       return;
@@ -157,7 +157,7 @@ export const DemoControls = ({
     });
     setBanner({
       tone: "ok",
-      text: `Realistic geocode test: created ${r.data.created_incidents.length} runtime incident(s).`,
+      text: `Realistic geocode smoke test: created ${r.data.created_incidents.length} runtime incident(s).`,
     });
     setSimKind("idle");
   }, [onAfterSimulation, onSimulationLifecycle, setMode]);
@@ -255,7 +255,7 @@ export const DemoControls = ({
           </label>
         </div>
         <p className="text-xs text-[#8b9bb0]">
-          Disaster/World Cup = seeded surge. Realistic geocode test = runtime triage +{" "}
+          Disaster/World Cup = seeded surge. Realistic geocode smoke test = one turn through runtime triage +{" "}
           <code className="font-mono text-[#70d6ff]/90">geocode_location</code>.
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -286,7 +286,7 @@ export const DemoControls = ({
           >
             {simKind === "realistic_geocode"
               ? "Running realistic runtime geocode simulation..."
-              : "Realistic geocode test"}
+              : "Realistic geocode smoke test"}
           </button>
           <button
             aria-label="Clear all incidents from the database"
@@ -335,7 +335,7 @@ export const DemoControls = ({
           <code className="font-mono text-[#70d6ff]/90">
             POST /api/simulate/disaster|world-cup
           </code>
-          . Seeded surge buttons keep the old bulk path; the realistic geocode test
+          . Seeded surge buttons keep the old bulk path; the realistic geocode smoke test
           posts{" "}
           <code className="font-mono text-[#70d6ff]/90">
             simulation_strategy: &quot;realistic&quot;

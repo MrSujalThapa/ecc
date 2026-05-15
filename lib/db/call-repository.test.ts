@@ -505,7 +505,7 @@ describe("call-repository (in-memory / no Supabase)", () => {
           repositorySimulateDisaster({
             reset_existing: true,
             simulation_strategy: "realistic",
-            transcripts: ["110 University Ave W, Waterloo, Ontario"],
+            transcripts: ["110 University Ave W, Waterloo, Ontario, Canada"],
             maxCap: 100,
           }),
       );
@@ -520,6 +520,19 @@ describe("call-repository (in-memory / no Supabase)", () => {
         "110 University Ave W, Waterloo, Ontario",
       );
       expect(out.created_incidents[0]?.coordinates?.lng).toBeLessThan(-80);
+      expect(
+        out.created_incidents[0]?.collected_fields.realistic_geocode_debug,
+      ).toMatchObject({
+        extracted_location_text:
+          "110 University Ave W, Waterloo, Ontario, Canada",
+        geocode_location_ran: true,
+        geocode_source: "mapbox_mcp",
+        normalized_query: "110 University Ave W, Waterloo, Ontario, Canada",
+        normalized_location: "110 University Ave W, Waterloo, Ontario",
+        coordinates: { lat: 43.4643, lng: -80.5204 },
+        coordinates_persisted: true,
+        used_seeded_geometry: false,
+      });
 
       const audits = listAuditLogsForIncident(
         out.created_incidents[0]!.id,
@@ -546,7 +559,7 @@ describe("call-repository (in-memory / no Supabase)", () => {
           repositorySimulateDisaster({
             reset_existing: true,
             simulation_strategy: "realistic",
-            transcripts: ["CN Tower, 290 Bremner Blvd, Toronto"],
+            transcripts: ["CN Tower, 290 Bremner Blvd, Toronto, ON, Canada"],
             maxCap: 100,
           }),
       );
@@ -557,6 +570,17 @@ describe("call-repository (in-memory / no Supabase)", () => {
       );
       expect(out.created_incidents[0]?.coordinates?.lat).toBeCloseTo(43.6426, 3);
       expect(out.created_incidents[0]?.coordinates?.lng).toBeCloseTo(-79.3871, 3);
+      expect(
+        out.created_incidents[0]?.collected_fields.realistic_geocode_debug,
+      ).toMatchObject({
+        extracted_location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+        geocode_location_ran: true,
+        geocode_source: "mapbox_mcp",
+        normalized_query: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+        coordinates: { lat: 43.6426, lng: -79.3871 },
+        coordinates_persisted: true,
+        used_seeded_geometry: false,
+      });
     });
   });
 

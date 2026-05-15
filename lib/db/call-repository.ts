@@ -130,6 +130,58 @@ const hydrateIncidentPatchFromToolResults = (
   return { ...patch, location_confidence: confidence };
 };
 
+const buildRealisticGeocodeDebug = (
+  patch: TriageAgentOutput["incident_patch"],
+  toolResults: readonly ToolResult[],
+): Record<string, Json> => {
+  const geocode = toolResults.find(
+    (result): result is ToolResult<GeocodeLocationData> =>
+      result.tool === "geocode_location",
+  );
+  const geocodeData = geocode?.data;
+  const coordinates =
+    geocodeData?.coordinates ??
+    (patch.coordinates &&
+    typeof patch.coordinates === "object" &&
+    typeof patch.coordinates.lat === "number" &&
+    typeof patch.coordinates.lng === "number"
+      ? patch.coordinates
+      : null);
+
+  return {
+    simulation_kind: "realistic_geocode_smoke_test",
+    runtime_path: "repositoryCallTurn",
+    used_seeded_geometry: false,
+    extracted_location_text:
+      geocodeData?.extracted_location ??
+      (typeof patch.location === "string" ? patch.location : null),
+    geocode_location_ran: Boolean(geocode),
+    geocode_source: geocode?.source ?? null,
+    normalized_query: geocodeData?.normalized_query ?? null,
+    normalized_location:
+      geocodeData?.normalized_location ??
+      (typeof patch.location === "string" ? patch.location : null),
+    coordinates,
+    coordinates_persisted:
+      Boolean(coordinates) &&
+      patch.coordinates !== undefined &&
+      patch.coordinates !== null,
+    provider_status: geocodeData?.provider_status ?? null,
+    provider_error: geocodeData?.provider_error ?? null,
+  };
+};
+
+const attachRealisticSimulationDebug = (
+  patch: TriageAgentOutput["incident_patch"],
+  toolResults: readonly ToolResult[],
+): TriageAgentOutput["incident_patch"] => ({
+  ...patch,
+  collected_fields: {
+    ...(patch.collected_fields ?? {}),
+    realistic_geocode_debug: buildRealisticGeocodeDebug(patch, toolResults),
+  },
+});
+
 /**
  * Runs the Call Triage Agent with a bounded tool loop:
  *
@@ -268,10 +320,16 @@ const applyTriagePatchesAndGate = (
   triageOutcome: TwoPassTriageOutcome
 ) => {
   const aiOutput = triageOutcome.output;
-  const incidentPatch = hydrateIncidentPatchFromToolResults(
+  let incidentPatch = hydrateIncidentPatchFromToolResults(
     aiOutput.incident_patch,
     triageOutcome.toolResults
   );
+  if (incident.last_updated_by === "simulate:realistic") {
+    incidentPatch = attachRealisticSimulationDebug(
+      incidentPatch,
+      triageOutcome.toolResults,
+    );
+  }
   const patchedIncident = applyIncidentPatch(incident, incidentPatch);
   const patchedSession = applyCallSessionPatch(session, aiOutput.call_session_patch);
   return applyTransferGate(patchedIncident, patchedSession, aiOutput.system_actions);
@@ -533,6 +591,8 @@ export const repositoryCallTurn = async (
     language,
     translated_text,
   } = parsed;
+  const triageProvider =
+    source === "simulate_realistic" ? "mock" : process.env.AI_PROVIDER;
 
   const client = getServiceRoleClient();
   if (!client) {
@@ -582,7 +642,7 @@ export const repositoryCallTurn = async (
       latestTranscript: text,
       transcriptHistory: history,
       mode: incident.mode,
-      provider: process.env.AI_PROVIDER,
+      provider: triageProvider,
     });
     const aiOutput = triageOutcome.output;
     const gated = applyTriagePatchesAndGate(incident, refreshedSession, triageOutcome);
@@ -679,7 +739,7 @@ export const repositoryCallTurn = async (
     latestTranscript: text,
     transcriptHistory: history,
     mode: incident.mode,
-    provider: process.env.AI_PROVIDER,
+    provider: triageProvider,
   });
   const aiOutput = triageOutcome.output;
   const gated = applyTriagePatchesAndGate(incident, session, triageOutcome);
@@ -1479,13 +1539,27 @@ const repositorySimulateRuntime = async (
 
   for (const [index, transcript] of transcripts.entries()) {
     const started = await repositoryCallStart({ mode: input.mode });
+    if (!client) {
+      saveIncident({
+        ...started.incident,
+        last_updated_by: "simulate:realistic",
+      });
+    } else {
+      const { error } = await client
+        .from("incidents")
+        .update({ last_updated_by: "simulate:realistic", updated_at: isoNow() })
+        .eq("id", started.incident_id);
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
     const turned = await repositoryCallTurn({
       incident_id: started.incident_id,
       call_session_id: started.call_session_id,
       speaker: "caller",
       text: transcript,
       is_final: true,
-      source: "simulate",
+      source: "simulate_realistic",
     });
 
     created_incidents.push(turned.incident);

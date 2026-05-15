@@ -109,6 +109,7 @@ describe("geocodeWithMapboxMcp", () => {
       place_name: "BMO Field, Toronto, Ontario",
       confidence: 0.98,
       provider_place_id: "mbx.123",
+      selected_match_text: "BMO Field, Toronto, Ontario",
       raw: { ok: true },
     });
   });
@@ -149,8 +150,93 @@ describe("geocodeWithMapboxMcp", () => {
       place_name: "Union Station",
       confidence: 1,
       provider_place_id: "place.456",
+      selected_match_text: "Union Station",
       raw: { ok: true },
     });
+  });
+
+  it("deduplicates city and country context when the location already includes them", async () => {
+    const result = await geocodeWithMapboxMcp(
+      {
+        location_text: "110 University Ave W, Waterloo, Ontario, Canada",
+        city_context: "Waterloo",
+        country_context: "Canada",
+      },
+      {
+        client: createClient({
+          ok: true,
+          source: "mapbox_mcp",
+          toolName: "search_and_geocode_tool",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                features: [
+                  {
+                    place_name: "110 University Ave W, Waterloo, Ontario, Canada",
+                    mapbox_id: "mbx.waterloo",
+                    relevance: 0.99,
+                    geometry: {
+                      coordinates: [-80.5204, 43.4643],
+                    },
+                  },
+                ],
+              }),
+            },
+          ],
+          raw: { ok: true },
+        }),
+      },
+    );
+
+    expect(result.query).toBe("110 University Ave W, Waterloo, Ontario, Canada");
+  });
+
+  it("prefers the most specific landmark/address match over a generic city result", async () => {
+    const result = await geocodeWithMapboxMcp(
+      {
+        location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+        city_context: "Toronto",
+        country_context: "Canada",
+      },
+      {
+        client: createClient({
+          ok: true,
+          source: "mapbox_mcp",
+          toolName: "search_and_geocode_tool",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                features: [
+                  {
+                    place_name: "Toronto, Ontario, Canada",
+                    mapbox_id: "mbx.generic_toronto",
+                    relevance: 0.99,
+                    geometry: {
+                      coordinates: [-79.3832, 43.6532],
+                    },
+                  },
+                  {
+                    place_name: "CN Tower, 290 Bremner Blvd, Toronto, Ontario, Canada",
+                    mapbox_id: "mbx.cn_tower",
+                    relevance: 0.92,
+                    geometry: {
+                      coordinates: [-79.3871, 43.6426],
+                    },
+                  },
+                ],
+              }),
+            },
+          ],
+          raw: { ok: true },
+        }),
+      },
+    );
+
+    expect(result.coordinates).toEqual({ lng: -79.3871, lat: 43.6426 });
+    expect(result.provider_place_id).toBe("mbx.cn_tower");
+    expect(result.selected_match_text).toContain("CN Tower");
   });
 
   it("returns error when the MCP response contains no usable matches", async () => {

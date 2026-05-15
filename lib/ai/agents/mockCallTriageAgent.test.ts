@@ -103,7 +103,7 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
   it("emits geocode_location for explicit addresses in ordinary transcripts", async () => {
     const out = await mockCallTriageAgent({
       latestTranscript:
-        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario.",
+        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario, Canada.",
       mode: "normal",
     });
 
@@ -112,12 +112,12 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
     );
     expect(geocodeReq).toBeDefined();
     expect(geocodeReq?.args).toEqual({
-      location_text: "110 university ave w, waterloo, ontario",
+      location_text: "110 University Ave W, Waterloo, Ontario, Canada",
       city_context: "Waterloo",
       country_context: "Canada",
     });
     expect(out.incident_patch.location).toBe(
-      "110 university ave w, waterloo, ontario",
+      "110 University Ave W, Waterloo, Ontario, Canada",
     );
     expect(out.incident_patch.location_status).toBe("unknown");
   });
@@ -134,8 +134,9 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
     );
     expect(geocodeReq).toBeDefined();
     expect(geocodeReq?.args).toEqual({
-      location_text: "290 bremner blvd, toronto",
+      location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
       city_context: "Toronto",
+      country_context: "Canada",
     });
   });
 
@@ -158,13 +159,17 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
         ok: true,
         status: "success",
         source: "mapbox_mcp",
-        args: { location_text: "110 university ave w, waterloo, ontario" },
+        args: { location_text: "110 University Ave W, Waterloo, Ontario, Canada" },
         latency_ms: 25,
         data: {
+          extracted_location: "110 University Ave W, Waterloo, Ontario, Canada",
+          normalized_query: "110 University Ave W, Waterloo, Ontario, Canada",
           normalized_location: "110 University Ave W, Waterloo, Ontario",
           coordinates: { lat: 43.4643, lng: -80.5204 },
           confidence: 0.99,
           provider_place_id: "mbx.waterloo",
+          provider_status: "success",
+          provider_error: null,
         },
         created_at: "2026-05-07T20:00:00.000Z",
       },
@@ -172,7 +177,7 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
 
     const out = await mockCallTriageAgent({
       latestTranscript:
-        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario.",
+        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario, Canada.",
       mode: "normal",
       toolResults,
     });

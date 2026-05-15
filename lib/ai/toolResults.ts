@@ -83,10 +83,14 @@ export type Coordinates = {
 };
 
 export type GeocodeLocationData = {
+  extracted_location?: string;
+  normalized_query?: string;
   normalized_location: string;
   coordinates: Coordinates;
   confidence: number;
   provider_place_id?: string | null;
+  provider_status?: "success" | "error" | "unavailable";
+  provider_error?: string | null;
 };
 
 export type ResponderRecommendationItem = {

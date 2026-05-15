@@ -1297,3 +1297,7 @@ Prefer complete updated files when changing many lines.
 - Validate that mock/Gemma triage outputs produce operator-visible state changes without needing any direct dashboard-to-AI calls.
 - Tune AI output quality for map usefulness, especially reliable location text, coordinate confidence, urgency, and concise summaries.
 - Prepare future surge/cluster intelligence knowing Phase 1 already renders incidents from shared contracts and is ready for later cluster/layer UI work.
+
+## Realistic Geocode Smoke Test Update
+
+- Added a realistic geocode smoke-test dashboard pass: the button is labeled as a one-turn smoke test, the dashboard refetches `/api/dev/incidents`, auto-selects the first runtime incident after reset, and the incident drawer shows realistic-only geocode provenance.

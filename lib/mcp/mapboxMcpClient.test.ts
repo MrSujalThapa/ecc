@@ -15,7 +15,8 @@ describe("createMapboxMcpClient", () => {
       source: "mapbox_mcp",
       toolName: "search_and_geocode_tool",
       code: "disabled",
-      message: "Mapbox MCP is disabled. Enable MAPBOX_MCP_ENABLED=true to use it.",
+      message:
+        "Mapbox MCP is disabled. Enable MAPBOX_MCP_ENABLED=true to use backend geocoding. NEXT_PUBLIC_MAPBOX_TOKEN only renders the frontend map.",
       raw: null,
     });
   });
@@ -35,7 +36,8 @@ describe("createMapboxMcpClient", () => {
       source: "mapbox_mcp",
       toolName: "search_and_geocode_tool",
       code: "not_configured",
-      message: "Mapbox MCP is enabled but MAPBOX_ACCESS_TOKEN is missing.",
+      message:
+        "Mapbox MCP is enabled but MAPBOX_ACCESS_TOKEN is missing. Backend geocoding requires MAPBOX_MCP_ENABLED=true and MAPBOX_ACCESS_TOKEN; NEXT_PUBLIC_MAPBOX_TOKEN only renders the frontend map.",
       raw: null,
     });
   });

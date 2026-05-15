@@ -7,14 +7,35 @@ import type {
 
 const DEFAULT_MAPBOX_GEOCODE_TOOL = "search_and_geocode_tool";
 
+const normalizeQuerySegment = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
 const buildQuery = ({
   location_text,
   city_context,
   country_context,
-}: MapboxGeocodeAdapterInput): string =>
-  [location_text, city_context?.trim(), country_context?.trim()]
-    .filter((value): value is string => Boolean(value && value.length > 0))
-    .join(", ");
+}: MapboxGeocodeAdapterInput): string => {
+  const parts: string[] = [];
+
+  for (const candidate of [
+    location_text.trim(),
+    city_context?.trim() ?? "",
+    country_context?.trim() ?? "",
+  ]) {
+    if (candidate.length === 0) {
+      continue;
+    }
+    const normalizedCandidate = normalizeQuerySegment(candidate);
+    const alreadyPresent = parts.some((part) =>
+      normalizeQuerySegment(part).includes(normalizedCandidate),
+    );
+    if (!alreadyPresent) {
+      parts.push(candidate);
+    }
+  }
+
+  return parts.join(", ");
+};
 
 const tryParseJson = (value: string): unknown => {
   try {
@@ -42,28 +63,28 @@ const extractContentPayload = (content: unknown): unknown => {
   return content;
 };
 
-const extractFirstMatch = (value: unknown): Record<string, unknown> | null => {
+const extractMatches = (value: unknown): Record<string, unknown>[] => {
   if (Array.isArray(value)) {
-    const first = value[0];
-    return typeof first === "object" && first !== null
-      ? (first as Record<string, unknown>)
-      : null;
+    return value.filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    );
   }
 
   if (typeof value !== "object" || value === null) {
-    return null;
+    return [];
   }
 
   const record = value as Record<string, unknown>;
   const features = record.features;
   if (Array.isArray(features)) {
-    const first = features[0];
-    return typeof first === "object" && first !== null
-      ? (first as Record<string, unknown>)
-      : null;
+    return features.filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    );
   }
 
-  return record;
+  return [record];
 };
 
 const extractCoordinates = (
@@ -98,6 +119,50 @@ const extractCoordinates = (
 const extractNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+const tokenize = (value: string): string[] =>
+  normalizeQuerySegment(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+
+const extractMatchText = (value: Record<string, unknown>): string =>
+  [
+    typeof value.place_name === "string" ? value.place_name : "",
+    typeof value.name === "string" ? value.name : "",
+    typeof value.address === "string" ? value.address : "",
+  ]
+    .filter((segment) => segment.length > 0)
+    .join(" ");
+
+const scoreMatch = (query: string, value: Record<string, unknown>): number => {
+  const matchText = extractMatchText(value);
+  const normalizedQuery = normalizeQuerySegment(query);
+  const normalizedMatch = normalizeQuerySegment(matchText);
+  const queryTokens = tokenize(query);
+  const numericTokens = queryTokens.filter((token) => /\d/.test(token));
+  const overlapCount = queryTokens.filter((token) =>
+    normalizedMatch.includes(token),
+  ).length;
+  const numericOverlap = numericTokens.filter((token) =>
+    normalizedMatch.includes(token),
+  ).length;
+  const baseConfidence =
+    extractNumber(value.relevance) ?? extractNumber(value.confidence) ?? 0;
+
+  let score = baseConfidence;
+  score += overlapCount * 5;
+  score += numericOverlap * 20;
+
+  if (normalizedMatch.includes(normalizedQuery)) {
+    score += 100;
+  }
+
+  if (numericTokens.length > 0 && numericOverlap === numericTokens.length) {
+    score += 25;
+  }
+
+  return score;
+};
+
 export const geocodeWithMapboxMcp = async (
   input: MapboxGeocodeAdapterInput,
   options?: {
@@ -128,7 +193,11 @@ export const geocodeWithMapboxMcp = async (
   }
 
   const payload = extractContentPayload(toolResult.content);
-  const firstMatch = extractFirstMatch(payload);
+  const matches = extractMatches(payload);
+  const firstMatch =
+    matches.length === 0
+      ? null
+      : [...matches].sort((a, b) => scoreMatch(query, b) - scoreMatch(query, a))[0] ?? null;
 
   if (!firstMatch) {
     return {
@@ -168,6 +237,7 @@ export const geocodeWithMapboxMcp = async (
       (typeof firstMatch.mapbox_id === "string" && firstMatch.mapbox_id) ||
       (typeof firstMatch.id === "string" && firstMatch.id) ||
       null,
+    selected_match_text: extractMatchText(firstMatch) || null,
     raw: toolResult.raw,
   };
 };

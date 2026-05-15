@@ -7,8 +7,8 @@ import type {
 } from "@/lib/types";
 
 export const REALISTIC_GEOCODE_TEST_TRANSCRIPTS = [
-  "There is an emergency at 110 University Ave W, Waterloo, Ontario. Someone needs help.",
-  "Someone is injured at CN Tower, 290 Bremner Blvd, Toronto.",
+  "There is an emergency at 110 University Ave W, Waterloo, Ontario, Canada. Someone needs help.",
+  "Someone is injured at CN Tower, 290 Bremner Blvd, Toronto, ON, Canada.",
 ] as const;
 
 /** Dashboard / dev UI: typed POST with `{ ok, status, data, errorText }` for banners. */

@@ -200,6 +200,27 @@ const LOCATION_LANDMARKS = [
   "exhibition place",
 ] as const;
 
+const DETERMINISTIC_LOCATION_EXTRACTORS = [
+  {
+    pattern:
+      /\b110\s+University\s+Ave\s+W(?:,\s*Waterloo(?:,\s*(?:Ontario|ON))?(?:,\s*Canada)?)?/i,
+    extracted: {
+      location_text: "110 University Ave W, Waterloo, Ontario, Canada",
+      city_context: "Waterloo",
+      country_context: "Canada",
+    },
+  },
+  {
+    pattern:
+      /\bCN\s+Tower\s*,?\s*290\s+Bremner\s+Blvd(?:,\s*Toronto(?:,\s*(?:Ontario|ON))?(?:,\s*Canada)?)?/i,
+    extracted: {
+      location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+      city_context: "Toronto",
+      country_context: "Canada",
+    },
+  },
+] as const;
+
 const NON_LOCATION_INTERSECTION_TOKENS = new Set([
   "my",
   "i",
@@ -236,11 +257,19 @@ const isPlausibleIntersection = (value: string): boolean => {
 };
 
 const extractSpecificLocation = (transcript: string): ExtractedLocation | null => {
+  for (const candidate of DETERMINISTIC_LOCATION_EXTRACTORS) {
+    if (candidate.pattern.test(transcript)) {
+      return { ...candidate.extracted };
+    }
+  }
+
   const intersectionMatch = transcript.match(INTERSECTION_PATTERN)?.[0] ?? null;
   const addressMatch = transcript.match(EXPLICIT_ADDRESS_PATTERN);
   const rawLocation =
     addressMatch?.[0] ??
-    LOCATION_LANDMARKS.find((landmark) => transcript.includes(landmark)) ??
+    LOCATION_LANDMARKS.find((landmark) =>
+      transcript.toLowerCase().includes(landmark),
+    ) ??
     (intersectionMatch && isPlausibleIntersection(intersectionMatch)
       ? intersectionMatch
       : null) ??
@@ -827,18 +856,19 @@ function buildBaseDraft(
 export async function mockCallTriageAgent(
   input: CallTriageAgentInput
 ): Promise<TriageAgentOutput> {
-  const latest = extractText(input.latestTranscript).toLowerCase().trim();
+  const latest = extractText(input.latestTranscript).trim();
   // Combine full conversation history so keyword matching works even when
   // the emergency type was mentioned in a prior turn (e.g. "smoke" on turn 1,
   // location given on turn 2 — both turns should classify as fire).
   const history = (input.transcriptHistory ?? [])
-    .map((t) => extractText(t).toLowerCase())
+    .map((t) => extractText(t).trim())
     .filter(Boolean);
-  const fullTranscript = [...history, latest].join(" ");
+  const fullTranscript = [...history, latest].join(" ").trim();
+  const normalizedTranscript = fullTranscript.toLowerCase();
   const mode: AgentMode = input.mode ?? "normal";
-  let draft = buildBaseDraft(fullTranscript, mode, input.toolResults);
+  let draft = buildBaseDraft(normalizedTranscript, mode, input.toolResults);
 
-  if (!matchesAny(fullTranscript, KEYWORDS.geocodingDemo)) {
+  if (!matchesAny(normalizedTranscript, KEYWORDS.geocodingDemo)) {
     const location = extractSpecificLocation(fullTranscript);
     if (location) {
       draft = applyToolResolvedLocation(draft, location, input.toolResults);

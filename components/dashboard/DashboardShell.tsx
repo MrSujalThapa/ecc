@@ -119,6 +119,7 @@ export function DashboardShell() {
   const selectionRef = useRef<string | null>(null);
   const realtimeBootstrappedRef = useRef(false);
   const explicitClearRef = useRef(false);
+  const autoSelectFirstIncidentRef = useRef(false);
 
   const incidentDataSource = useMemo(
     () =>
@@ -183,6 +184,10 @@ export function DashboardShell() {
       setLoadState,
       setLoadMessage,
     );
+    if (autoSelectFirstIncidentRef.current) {
+      autoSelectFirstIncidentRef.current = false;
+      setSelectedIncidentId(result.incidents[0]?.id ?? null);
+    }
   }, [incidentDataSource]);
 
   const loadIncidents = useCallback(async () => {
@@ -414,6 +419,9 @@ export function DashboardShell() {
 
   const handleSimulationLifecycle = useCallback(
     (event: SimulationLifecycleEvent) => {
+      if (event.phase === "start" && event.kind === "realistic_geocode") {
+        autoSelectFirstIncidentRef.current = true;
+      }
       const nextState = getSimulationResetState(event);
       if (nextState) {
         clearDashboardIncidentState(nextState);
