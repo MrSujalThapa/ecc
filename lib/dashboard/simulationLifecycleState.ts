@@ -1,6 +1,6 @@
 export type SimulationLifecycleEvent = {
   phase: "start" | "success" | "error";
-  kind: "disaster" | "world_cup" | "clear";
+  kind: "disaster" | "world_cup" | "realistic_geocode" | "clear";
   resetExisting: boolean;
 };
 
@@ -23,6 +23,8 @@ export const getSimulationResetState = (
       loadMessage:
         event.kind === "clear"
           ? "Clearing incidents from the active source..."
+          : event.kind === "realistic_geocode"
+            ? "Running realistic runtime geocode simulation..."
           : "Resetting incidents before simulation...",
       clearSelection: true,
     };

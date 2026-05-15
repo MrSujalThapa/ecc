@@ -5,6 +5,7 @@ import type { AppMode } from "@/lib/types";
 import {
   postSimulateDisaster,
   postSimulateWorldCup,
+  runRealisticGeocodeSimulation,
 } from "@/lib/data/simulationClient";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 
@@ -17,7 +18,7 @@ type DemoControlsProps = {
   onResetView: () => void;
   onSimulationLifecycle?: (event: {
     phase: "start" | "success" | "error";
-    kind: "disaster" | "world_cup" | "clear";
+    kind: "disaster" | "world_cup" | "realistic_geocode" | "clear";
     resetExisting: boolean;
   }) => void;
   mode: AppMode | "all";
@@ -35,7 +36,7 @@ export const DemoControls = ({
   const { visibility } = useDashboardPersona();
 
   const [simKind, setSimKind] = useState<
-    "idle" | "disaster" | "world_cup" | "refresh" | "clear"
+    "idle" | "disaster" | "world_cup" | "realistic_geocode" | "refresh" | "clear"
   >("idle");
   const [resetExisting, setResetExisting] = useState(false);
   const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(
@@ -121,6 +122,45 @@ export const DemoControls = ({
     });
     setSimKind("idle");
   }, [onAfterSimulation, onSimulationLifecycle, resetExisting, setMode]);
+
+  const handleRealisticGeocode = useCallback(async () => {
+    setSimKind("realistic_geocode");
+    setBanner({
+      tone: "ok",
+      text: "Running realistic runtime geocode simulation...",
+    });
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "realistic_geocode",
+      resetExisting: true,
+    });
+    const r = await runRealisticGeocodeSimulation();
+    if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "realistic_geocode",
+        resetExisting: true,
+      });
+      setBanner({
+        tone: "error",
+        text: `Realistic geocode test failed (${r.status}): ${r.errorText.slice(0, 280)}`,
+      });
+      setSimKind("idle");
+      return;
+    }
+    setMode("disaster");
+    await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "realistic_geocode",
+      resetExisting: true,
+    });
+    setBanner({
+      tone: "ok",
+      text: `Realistic geocode test: created ${r.data.created_incidents.length} runtime incident(s).`,
+    });
+    setSimKind("idle");
+  }, [onAfterSimulation, onSimulationLifecycle, setMode]);
 
   const handleRefresh = useCallback(async () => {
     setSimKind("refresh");
@@ -214,6 +254,10 @@ export const DemoControls = ({
             Replace existing first (<code className="text-[#70d6ff]/90">reset_existing</code>)
           </label>
         </div>
+        <p className="text-xs text-[#8b9bb0]">
+          Disaster/World Cup = seeded surge. Realistic geocode test = runtime triage +{" "}
+          <code className="font-mono text-[#70d6ff]/90">geocode_location</code>.
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
             aria-label="Trigger disaster simulation"
@@ -232,6 +276,17 @@ export const DemoControls = ({
             type="button"
           >
             {simKind === "world_cup" ? "Running..." : "World Cup simulation"}
+          </button>
+          <button
+            aria-label="Trigger realistic runtime geocode simulation"
+            className="rounded-full border border-[#52b788]/35 bg-[#0f2b24] px-3 py-1.5 text-sm font-medium text-[#d8fff0] transition hover:border-[#52b788]/60 hover:bg-[#123328] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={simBusy}
+            onClick={() => void handleRealisticGeocode()}
+            type="button"
+          >
+            {simKind === "realistic_geocode"
+              ? "Running realistic runtime geocode simulation..."
+              : "Realistic geocode test"}
           </button>
           <button
             aria-label="Clear all incidents from the database"
@@ -280,8 +335,12 @@ export const DemoControls = ({
           <code className="font-mono text-[#70d6ff]/90">
             POST /api/simulate/disaster|world-cup
           </code>
-          . Optional <code className="font-mono text-[#70d6ff]/90">reset_existing</code>{" "}
-          is supported; simulations refetch incidents after success.
+          . Seeded surge buttons keep the old bulk path; the realistic geocode test
+          posts{" "}
+          <code className="font-mono text-[#70d6ff]/90">
+            simulation_strategy: &quot;realistic&quot;
+          </code>{" "}
+          and refetches incidents after success.
         </p>
       )}
     </div>
