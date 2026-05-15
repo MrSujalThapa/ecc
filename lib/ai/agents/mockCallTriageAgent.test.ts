@@ -100,10 +100,10 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
     expect(out.say_to_caller).toMatch(/could not resolve/i);
   });
 
-  it("emits geocode_location for explicit addresses in ordinary transcripts", async () => {
+  it("preserves explicit street address and city in ordinary transcripts", async () => {
     const out = await mockCallTriageAgent({
       latestTranscript:
-        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario, Canada.",
+        "I need help, I'm at 49 Ravenscliffe Court in Brampton. Someone is trying to break in.",
       mode: "normal",
     });
 
@@ -112,20 +112,18 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
     );
     expect(geocodeReq).toBeDefined();
     expect(geocodeReq?.args).toEqual({
-      location_text: "110 University Ave W, Waterloo, Ontario, Canada",
-      city_context: "Waterloo",
+      location_text: "49 Ravenscliffe Court, Brampton, Ontario, Canada",
+      city_context: "Brampton",
       country_context: "Canada",
     });
-    expect(out.incident_patch.location).toBe(
-      "110 University Ave W, Waterloo, Ontario, Canada",
-    );
+    expect(out.incident_patch.location).toBe("49 Ravenscliffe Court, Brampton, Ontario, Canada");
     expect(out.incident_patch.location_status).toBe("unknown");
   });
 
-  it("emits geocode_location for strong landmark phrases in ordinary transcripts", async () => {
+  it("preserves landmark, nearby address, and city in ordinary transcripts", async () => {
     const out = await mockCallTriageAgent({
       latestTranscript:
-        "There is smoke near the CN Tower, 290 Bremner Blvd, Toronto.",
+        "There's a medical emergency outside Rogers Centre near 1 Blue Jays Way in Toronto.",
       mode: "normal",
     });
 
@@ -134,8 +132,27 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
     );
     expect(geocodeReq).toBeDefined();
     expect(geocodeReq?.args).toEqual({
-      location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+      location_text: "Rogers Centre, 1 Blue Jays Way, Toronto, Ontario, Canada",
       city_context: "Toronto",
+      country_context: "Canada",
+    });
+  });
+
+  it("preserves intersections and city in ordinary transcripts", async () => {
+    const out = await mockCallTriageAgent({
+      latestTranscript:
+        "There's a crash at Bovaird Drive West and Chinguacousy Road in Brampton.",
+      mode: "normal",
+    });
+
+    const geocodeReq = out.tool_requests.find(
+      (r) => r.tool === "geocode_location",
+    );
+    expect(geocodeReq).toBeDefined();
+    expect(geocodeReq?.args).toEqual({
+      location_text:
+        "Bovaird Drive West and Chinguacousy Road, Brampton, Ontario, Canada",
+      city_context: "Brampton",
       country_context: "Canada",
     });
   });
@@ -159,15 +176,15 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
         ok: true,
         status: "success",
         source: "mapbox_mcp",
-        args: { location_text: "110 University Ave W, Waterloo, Ontario, Canada" },
+        args: { location_text: "49 Ravenscliffe Court, Brampton, Ontario, Canada" },
         latency_ms: 25,
         data: {
-          extracted_location: "110 University Ave W, Waterloo, Ontario, Canada",
-          normalized_query: "110 University Ave W, Waterloo, Ontario, Canada",
-          normalized_location: "110 University Ave W, Waterloo, Ontario",
-          coordinates: { lat: 43.4643, lng: -80.5204 },
+          extracted_location: "49 Ravenscliffe Court, Brampton, Ontario, Canada",
+          normalized_query: "49 Ravenscliffe Court, Brampton, Ontario, Canada",
+          normalized_location: "49 Ravenscliffe Court, Brampton, Ontario",
+          coordinates: { lat: 43.679566, lng: -79.794863 },
           confidence: 0.99,
-          provider_place_id: "mbx.waterloo",
+          provider_place_id: "mbx.brampton",
           provider_status: "success",
           provider_error: null,
         },
@@ -177,18 +194,18 @@ describe("mockCallTriageAgent — geocoding_demo two-pass path", () => {
 
     const out = await mockCallTriageAgent({
       latestTranscript:
-        "Someone kidnapped my child at 110 University Ave W, Waterloo, Ontario, Canada.",
+        "I need help, I'm at 49 Ravenscliffe Court in Brampton. Someone is trying to break in.",
       mode: "normal",
       toolResults,
     });
 
     expect(out.tool_requests).toEqual([]);
     expect(out.incident_patch.location).toBe(
-      "110 University Ave W, Waterloo, Ontario",
+      "49 Ravenscliffe Court, Brampton, Ontario",
     );
     expect(out.incident_patch.coordinates).toEqual({
-      lat: 43.4643,
-      lng: -80.5204,
+      lat: 43.679566,
+      lng: -79.794863,
     });
     expect(out.incident_patch.location_status).toBe("approximate_by_ai");
     expect(out.incident_patch.location_confidence).toBe(0.99);

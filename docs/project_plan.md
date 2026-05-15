@@ -432,6 +432,7 @@ Dashboard UX should keep the map as the visual centerpiece while using queue/dra
 - Use same Call Triage Agent pipeline as real calls.
 - [x] Add an optional `simulation_strategy: "realistic"` path that feeds selected simulated caller text through the normal call-turn runtime and geocoding tool loop without seeded coordinates.
 - [x] Harden the realistic geocode smoke test so explicit Waterloo/CN Tower transcripts emit clean `geocode_location` requests, persist runtime coordinates plus provenance, and refresh the dashboard from `/api/dev/incidents`.
+- [x] Improve realistic-mode mock triage extraction so generic address+city, landmark+address+city, and intersection+city transcripts emit clean Ontario geocode queries without location-specific production special cases.
 
 ### 12.3 Activate surge state
 

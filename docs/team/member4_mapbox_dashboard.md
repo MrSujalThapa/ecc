@@ -1301,3 +1301,4 @@ Prefer complete updated files when changing many lines.
 ## Realistic Geocode Smoke Test Update
 
 - Added a realistic geocode smoke-test dashboard pass: the button is labeled as a one-turn smoke test, the dashboard refetches `/api/dev/incidents`, auto-selects the first runtime incident after reset, and the incident drawer shows realistic-only geocode provenance.
+- [x] Tightened the realistic smoke extractor so generic street-address, landmark-plus-address, and intersection transcripts preserve clean Ontario query strings while continuing to show persisted MCP provenance in the incident drawer.

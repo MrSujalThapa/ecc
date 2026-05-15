@@ -185,41 +185,48 @@ const findToolResult = <T>(
 
 const ADDRESS_SUFFIX_PATTERN =
   "(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|crescent|cres|way|parkway|pkwy)";
+const ROAD_SUFFIX_PATTERN =
+  "(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|crescent|cres|way|parkway|pkwy)";
 const EXPLICIT_ADDRESS_PATTERN = new RegExp(
-  String.raw`\b\d{1,6}\s+[a-z0-9.'-]+(?:\s+[a-z0-9.'-]+){0,5}\s+${ADDRESS_SUFFIX_PATTERN}(?:\s+[nsew])?(?:,\s*[a-z][a-z\s.'-]+){0,2}`,
+  String.raw`\b\d{1,6}\s+[a-z0-9.'-]+(?:\s+[a-z0-9.'-]+){0,5}\s+${ADDRESS_SUFFIX_PATTERN}(?:\s+[nsew])?(?:,\s*[a-z][a-z\s.'-]+){0,3}`,
   "i",
 );
-const INTERSECTION_PATTERN =
-  /\b[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\s*(?:&|and)\s*[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}\b/i;
-
-const LOCATION_LANDMARKS = [
-  "cn tower",
-  "bmo field",
-  "union station",
-  "dana porter library",
-  "exhibition place",
+const ROAD_NAME_PATTERN = String.raw`[a-z0-9.'-]+(?:\s+[a-z0-9.'-]+){0,3}\s+${ROAD_SUFFIX_PATTERN}(?:\s+(?:north|south|east|west|n|s|e|w))?`;
+const INTERSECTION_PATTERN = new RegExp(
+  String.raw`\b${ROAD_NAME_PATTERN}\s*(?:&|and)\s*${ROAD_NAME_PATTERN}\b`,
+  "i",
+);
+const CITY_PATTERN = String.raw`[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}`;
+const CITY_CONTEXT_PATTERN = new RegExp(
+  String.raw`\b(?:in|at)\s+(${CITY_PATTERN})(?=[,.!?]|$)`,
+  "i",
+);
+const LANDMARK_NEAR_ADDRESS_CITY_PATTERN = new RegExp(
+  String.raw`\b(?:outside|at)?\s*([a-z0-9.'-][a-z0-9\s.'&-]{1,80}?)\s+near\s+(${EXPLICIT_ADDRESS_PATTERN.source})(?:,\s*(${CITY_PATTERN}))?(?:\s+in\s+(${CITY_PATTERN}))?(?:,\s*(Ontario|ON))?(?:,\s*(Canada))?`,
+  "i",
+);
+const LANDMARK_ADDRESS_CITY_PATTERN = new RegExp(
+  String.raw`\b([a-z0-9.'-][a-z0-9\s.'&-]{1,80}?),\s*(${EXPLICIT_ADDRESS_PATTERN.source})(?:,\s*(${CITY_PATTERN}))?(?:\s+in\s+(${CITY_PATTERN}))?(?:,\s*(Ontario|ON))?(?:,\s*(Canada))?`,
+  "i",
+);
+const ADDRESS_WITH_CITY_PATTERN = new RegExp(
+  String.raw`\b(?:at\s+)?(${EXPLICIT_ADDRESS_PATTERN.source})(?:,\s*(${CITY_PATTERN}))?(?:\s+in\s+(${CITY_PATTERN}))?(?:,\s*(Ontario|ON))?(?:,\s*(Canada))?`,
+  "i",
+);
+const INTERSECTION_WITH_CITY_PATTERN = new RegExp(
+  String.raw`\b(?:at\s+)?(${INTERSECTION_PATTERN.source})(?:\s+in\s+(${CITY_PATTERN}))?(?:,\s*(Ontario|ON))?(?:,\s*(Canada))?`,
+  "i",
+);
+const LANDMARK_PATTERN = /\b(?:outside|at|near)\s+([a-z0-9.'-][a-z0-9\s.'&-]{1,80}?)(?=[,.!?]|$)/i;
+const ONTARIO_DEFAULT_PROVINCE = "Ontario";
+const ONTARIO_DEFAULT_COUNTRY = "Canada";
+const LEADING_LOCATION_NOISE_PATTERNS = [
+  /^\s*i need help[,\s]*/i,
+  /^\s*there(?:'|’)s\s+(?:a|an)\s+[a-z\s]+?\s+at\s+/i,
+  /^\s*someone is trying to\s+[a-z\s]+?\.\s*/i,
 ] as const;
-
-const DETERMINISTIC_LOCATION_EXTRACTORS = [
-  {
-    pattern:
-      /\b110\s+University\s+Ave\s+W(?:,\s*Waterloo(?:,\s*(?:Ontario|ON))?(?:,\s*Canada)?)?/i,
-    extracted: {
-      location_text: "110 University Ave W, Waterloo, Ontario, Canada",
-      city_context: "Waterloo",
-      country_context: "Canada",
-    },
-  },
-  {
-    pattern:
-      /\bCN\s+Tower\s*,?\s*290\s+Bremner\s+Blvd(?:,\s*Toronto(?:,\s*(?:Ontario|ON))?(?:,\s*Canada)?)?/i,
-    extracted: {
-      location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
-      city_context: "Toronto",
-      country_context: "Canada",
-    },
-  },
-] as const;
+const TRAILING_LOCATION_NOISE_PATTERN =
+  /\b(?:someone is trying to|please hurry|right now)\b[\s\S]*$/i;
 
 const NON_LOCATION_INTERSECTION_TOKENS = new Set([
   "my",
@@ -244,6 +251,65 @@ type ExtractedLocation = {
 const normalizeSpacing = (value: string): string =>
   value.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim();
 
+const toTitleCase = (value: string): string =>
+  value
+    .trim()
+    .split(/\s+/)
+    .map((part) => {
+      if (/^(?:on|n|s|e|w|nw|ne|sw|se)$/i.test(part)) {
+        return part.toUpperCase();
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join(" ");
+
+const stripLocationNoise = (value: string): string => {
+  let cleaned = value.trim();
+  cleaned = cleaned.replace(
+    /^\s*there(?:'|’)s\s+(?:a|an)\s+[a-z\s]+?\s+(outside|near)\s+/i,
+    "$1 ",
+  );
+  for (const pattern of LEADING_LOCATION_NOISE_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+  cleaned = cleaned.replace(TRAILING_LOCATION_NOISE_PATTERN, "");
+  return normalizeSpacing(cleaned.replace(/[.?!]+$/g, "").replace(/\b(?:in|at)\s*$/i, ""));
+};
+
+const extractCityFromMatch = (...candidates: Array<string | undefined>): string | undefined => {
+  const candidate = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  if (!candidate) {
+    return undefined;
+  }
+  return toTitleCase(normalizeSpacing(candidate.replace(/[.?!]+$/g, "")));
+};
+
+const appendOntarioJurisdiction = (
+  locationText: string,
+  cityContext?: string,
+): string => {
+  const normalized = normalizeSpacing(locationText.replace(/[.?!]+$/g, ""));
+  const parts = normalized
+    .split(",")
+    .map((part) => normalizeSpacing(part))
+    .filter(Boolean);
+  const hasProvince = /\b(?:ontario|on)\b/i.test(normalized);
+  const hasCountry = /\bcanada\b/i.test(normalized);
+  const hasCity = Boolean(cityContext);
+
+  if (hasCity && !parts.some((part) => part.toLowerCase() === cityContext!.toLowerCase())) {
+    parts.push(cityContext!);
+  }
+  if ((hasCity || parts.length > 0) && !hasProvince) {
+    parts.push(ONTARIO_DEFAULT_PROVINCE);
+  }
+  if ((hasCity || parts.length > 0) && !hasCountry) {
+    parts.push(ONTARIO_DEFAULT_COUNTRY);
+  }
+
+  return normalizeSpacing(parts.join(", "));
+};
+
 const isPlausibleIntersection = (value: string): boolean => {
   const tokens = value
     .split(/\s*(?:&|and)\s*/i)
@@ -257,49 +323,97 @@ const isPlausibleIntersection = (value: string): boolean => {
 };
 
 const extractSpecificLocation = (transcript: string): ExtractedLocation | null => {
-  for (const candidate of DETERMINISTIC_LOCATION_EXTRACTORS) {
-    if (candidate.pattern.test(transcript)) {
-      return { ...candidate.extracted };
+  const cleanedTranscript = stripLocationNoise(transcript);
+  const landmarkAddressMatch = cleanedTranscript.match(LANDMARK_NEAR_ADDRESS_CITY_PATTERN);
+  if (landmarkAddressMatch) {
+    const landmark = normalizeSpacing(landmarkAddressMatch[1] ?? "");
+    const address = normalizeSpacing(landmarkAddressMatch[2] ?? "");
+    const city = extractCityFromMatch(landmarkAddressMatch[4], landmarkAddressMatch[3]);
+    const location_text = appendOntarioJurisdiction(
+      [landmark, address].filter(Boolean).join(", "),
+      city,
+    );
+    return {
+      location_text,
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
+  }
+
+  const landmarkCommaAddressMatch = cleanedTranscript.match(LANDMARK_ADDRESS_CITY_PATTERN);
+  if (landmarkCommaAddressMatch) {
+    const landmark = normalizeSpacing(landmarkCommaAddressMatch[1] ?? "");
+    const address = normalizeSpacing(landmarkCommaAddressMatch[2] ?? "");
+    const city = extractCityFromMatch(
+      landmarkCommaAddressMatch[4],
+      landmarkCommaAddressMatch[3],
+    );
+    const location_text = appendOntarioJurisdiction(
+      [landmark, address].filter(Boolean).join(", "),
+      city,
+    );
+    return {
+      location_text,
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
+  }
+
+  const addressMatch = cleanedTranscript.match(ADDRESS_WITH_CITY_PATTERN);
+  if (addressMatch) {
+    const address = normalizeSpacing(addressMatch[1] ?? "");
+    const city = extractCityFromMatch(addressMatch[3], addressMatch[2]);
+    return {
+      location_text: appendOntarioJurisdiction(address, city),
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
+  }
+
+  const intersectionMatch = cleanedTranscript.match(INTERSECTION_WITH_CITY_PATTERN);
+  if (intersectionMatch) {
+    const intersection = normalizeSpacing(intersectionMatch[1] ?? "");
+    if (isPlausibleIntersection(intersection)) {
+      const city = extractCityFromMatch(intersectionMatch[2]);
+      return {
+        location_text: appendOntarioJurisdiction(intersection, city),
+        city_context: city,
+        country_context: ONTARIO_DEFAULT_COUNTRY,
+      };
     }
   }
 
-  const intersectionMatch = transcript.match(INTERSECTION_PATTERN)?.[0] ?? null;
-  const addressMatch = transcript.match(EXPLICIT_ADDRESS_PATTERN);
-  const rawLocation =
-    addressMatch?.[0] ??
-    LOCATION_LANDMARKS.find((landmark) =>
-      transcript.toLowerCase().includes(landmark),
-    ) ??
-    (intersectionMatch && isPlausibleIntersection(intersectionMatch)
-      ? intersectionMatch
-      : null) ??
-    null;
-
-  if (!rawLocation) {
-    return null;
+  const rawAddressMatch = cleanedTranscript.match(EXPLICIT_ADDRESS_PATTERN)?.[0];
+  if (rawAddressMatch) {
+    const city = extractCityFromMatch(cleanedTranscript.match(CITY_CONTEXT_PATTERN)?.[1]);
+    return {
+      location_text: appendOntarioJurisdiction(rawAddressMatch, city),
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
   }
 
-  const location_text = normalizeSpacing(
-    rawLocation.replace(/[.?!]+$/g, ""),
-  );
-  const lowerLocation = location_text.toLowerCase();
-
-  const extracted: ExtractedLocation = { location_text };
-  if (lowerLocation.includes("waterloo")) {
-    extracted.city_context = "Waterloo";
-  } else if (lowerLocation.includes("toronto")) {
-    extracted.city_context = "Toronto";
+  const rawIntersectionMatch = cleanedTranscript.match(INTERSECTION_PATTERN)?.[0];
+  if (rawIntersectionMatch && isPlausibleIntersection(rawIntersectionMatch)) {
+    const city = extractCityFromMatch(cleanedTranscript.match(CITY_CONTEXT_PATTERN)?.[1]);
+    return {
+      location_text: appendOntarioJurisdiction(rawIntersectionMatch, city),
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
   }
 
-  if (
-    lowerLocation.includes("ontario") ||
-    lowerLocation.includes(", on") ||
-    lowerLocation.includes(" canada")
-  ) {
-    extracted.country_context = "Canada";
+  const landmarkMatch = cleanedTranscript.match(LANDMARK_PATTERN)?.[1];
+  if (landmarkMatch) {
+    const city = extractCityFromMatch(cleanedTranscript.match(CITY_CONTEXT_PATTERN)?.[1]);
+    return {
+      location_text: appendOntarioJurisdiction(landmarkMatch, city),
+      city_context: city,
+      country_context: ONTARIO_DEFAULT_COUNTRY,
+    };
   }
 
-  return extracted;
+  return null;
 };
 
 const geocodingDemoFirstPassDraft = (

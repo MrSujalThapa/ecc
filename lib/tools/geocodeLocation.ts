@@ -31,23 +31,6 @@ export type GeocodeLocationOutput = {
   source: ToolExecutionSource;
 };
 
-const DETERMINISTIC_SMOKE_TEST_FALLBACKS = [
-  {
-    match: ["110 university ave w", "waterloo"],
-    normalized_location: "110 University Ave W, Waterloo, Ontario, Canada",
-    coordinates: { lat: 43.4643, lng: -80.5204 },
-    confidence: 0.95,
-    provider_place_id: "mock:waterloo_university_ave_w",
-  },
-  {
-    match: ["cn tower", "290 bremner blvd"],
-    normalized_location: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
-    coordinates: { lat: 43.6426, lng: -79.3871 },
-    confidence: 0.97,
-    provider_place_id: "mock:cn_tower",
-  },
-] as const;
-
 const fallbackGeocodeLocation = async (
   args: GeocodeLocationArgs,
   fallbackContext?: {
@@ -57,25 +40,6 @@ const fallbackGeocodeLocation = async (
   },
 ): Promise<GeocodeLocationOutput> => {
   const needle = args.location_text.toLowerCase();
-  const deterministicMatch = DETERMINISTIC_SMOKE_TEST_FALLBACKS.find((candidate) =>
-    candidate.match.every((fragment) => needle.includes(fragment)),
-  );
-  if (deterministicMatch) {
-    return {
-      data: {
-        extracted_location: args.location_text,
-        normalized_query: fallbackContext?.normalizedQuery ?? args.location_text,
-        normalized_location: deterministicMatch.normalized_location,
-        coordinates: deterministicMatch.coordinates,
-        confidence: deterministicMatch.confidence,
-        provider_place_id: deterministicMatch.provider_place_id,
-        provider_status: fallbackContext?.providerStatus ?? "unavailable",
-        provider_error: fallbackContext?.providerError ?? null,
-      },
-      source: "mock",
-    };
-  }
-
   const match = LANDMARKS.find((landmark) =>
     landmark.match.some((fragment) => needle.includes(fragment))
   );
