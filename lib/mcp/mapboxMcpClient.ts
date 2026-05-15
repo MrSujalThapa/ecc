@@ -48,6 +48,7 @@ const buildFailureResult = (
 type MapboxJsonRpcSuccess = {
   result?: {
     content?: unknown;
+    structuredContent?: unknown;
   };
   error?: {
     code?: number;
@@ -58,6 +59,47 @@ type MapboxJsonRpcSuccess = {
 
 const isJsonRpcResponse = (value: unknown): value is MapboxJsonRpcSuccess =>
   typeof value === "object" && value !== null;
+
+const tryParseJson = (value: string): unknown => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const parseSseJsonRpcPayload = (value: string): unknown => {
+  const dataLines = value
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter((line) => line.length > 0);
+
+  for (const line of dataLines) {
+    const parsed = tryParseJson(line);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const parseMapboxMcpResponseBody = (
+  bodyText: string,
+): { parsed: unknown; kind: "json" | "sse" | "unknown" } => {
+  const parsedJson = tryParseJson(bodyText);
+  if (parsedJson !== null) {
+    return { parsed: parsedJson, kind: "json" };
+  }
+
+  const parsedSse = parseSseJsonRpcPayload(bodyText);
+  if (parsedSse !== null) {
+    return { parsed: parsedSse, kind: "sse" };
+  }
+
+  return { parsed: bodyText, kind: "unknown" };
+};
 
 class RuntimeMapboxMcpClient implements MapboxMcpClient {
   constructor(
@@ -92,7 +134,9 @@ class RuntimeMapboxMcpClient implements MapboxMcpClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
           Authorization: `Bearer ${config.accessToken}`,
+          "MCP-Protocol-Version": "2025-03-26",
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
@@ -108,7 +152,9 @@ class RuntimeMapboxMcpClient implements MapboxMcpClient {
 
       let raw: unknown;
       try {
-        raw = await response.json();
+        const bodyText = await response.text();
+        const parsed = parseMapboxMcpResponseBody(bodyText);
+        raw = parsed.parsed;
       } catch (error) {
         return buildFailureResult(
           request,
@@ -149,11 +195,15 @@ class RuntimeMapboxMcpClient implements MapboxMcpClient {
         );
       }
 
-      if (!("result" in raw) || !raw.result || !("content" in raw.result)) {
+      if (
+        !("result" in raw) ||
+        !raw.result ||
+        (!("content" in raw.result) && !("structuredContent" in raw.result))
+      ) {
         return buildFailureResult(
           request,
           "invalid_response",
-          "Mapbox MCP response did not include result.content.",
+          "Mapbox MCP response did not include result.content or result.structuredContent.",
           raw
         );
       }
@@ -162,7 +212,7 @@ class RuntimeMapboxMcpClient implements MapboxMcpClient {
         ok: true,
         source: "mapbox_mcp",
         toolName: request.toolName,
-        content: raw.result.content,
+        content: raw.result.structuredContent ?? raw.result.content,
         raw,
       };
     } catch (error) {

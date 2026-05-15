@@ -48,7 +48,9 @@ describe("createMapboxMcpClient", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toEqual({
         "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
         Authorization: "Bearer pk.test",
+        "MCP-Protocol-Version": "2025-03-26",
       });
 
       const body = JSON.parse(String(init?.body));
@@ -65,24 +67,35 @@ describe("createMapboxMcpClient", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({
-          jsonrpc: "2.0",
-          id: body.id,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  features: [
-                    {
-                      place_name: "BMO Field, Toronto, Ontario",
+        text: async () =>
+          `event: message\ndata: ${JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              structuredContent: {
+                type: "FeatureCollection",
+                features: [
+                  {
+                    type: "Feature",
+                    geometry: {
+                      type: "Point",
+                      coordinates: [-79.4187, 43.6332],
                     },
-                  ],
-                }),
+                    properties: {
+                      mapbox_id: "mbx.123",
+                      full_address: "BMO Field, Toronto, Ontario",
+                    },
+                  },
+                ],
               },
-            ],
-          },
-        }),
+              content: [
+                {
+                  type: "text",
+                  text: "BMO Field",
+                },
+              ],
+            },
+          })}\n\n`,
       } as Response;
     });
 
@@ -104,32 +117,46 @@ describe("createMapboxMcpClient", () => {
       ok: true,
       source: "mapbox_mcp",
       toolName: "search_and_geocode_tool",
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            features: [
-              {
-                place_name: "BMO Field, Toronto, Ontario",
-              },
-            ],
-          }),
-        },
-      ],
+      content: {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [-79.4187, 43.6332],
+            },
+            properties: {
+              mapbox_id: "mbx.123",
+              full_address: "BMO Field, Toronto, Ontario",
+            },
+          },
+        ],
+      },
       raw: {
         jsonrpc: "2.0",
         id: "req-1",
         result: {
+          structuredContent: {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                geometry: {
+                  type: "Point",
+                  coordinates: [-79.4187, 43.6332],
+                },
+                properties: {
+                  mapbox_id: "mbx.123",
+                  full_address: "BMO Field, Toronto, Ontario",
+                },
+              },
+            ],
+          },
           content: [
             {
               type: "text",
-              text: JSON.stringify({
-                features: [
-                  {
-                    place_name: "BMO Field, Toronto, Ontario",
-                  },
-                ],
-              }),
+              text: "BMO Field",
             },
           ],
         },
@@ -147,7 +174,7 @@ describe("createMapboxMcpClient", () => {
         ok: false,
         status: 502,
         statusText: "Bad Gateway",
-        json: async () => ({ detail: "gateway error" }),
+        text: async () => JSON.stringify({ detail: "gateway error" }),
       })) as typeof fetch
     );
 
@@ -176,10 +203,11 @@ describe("createMapboxMcpClient", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({
-          jsonrpc: "2.0",
-          error: { code: -32000, message: "tool failed" },
-        }),
+        text: async () =>
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "tool failed" },
+          }),
       })) as typeof fetch
     );
 
@@ -211,7 +239,7 @@ describe("createMapboxMcpClient", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({ jsonrpc: "2.0", result: {} }),
+        text: async () => JSON.stringify({ jsonrpc: "2.0", result: {} }),
       })) as typeof fetch
     );
 
@@ -225,7 +253,7 @@ describe("createMapboxMcpClient", () => {
       source: "mapbox_mcp",
       toolName: "search_and_geocode_tool",
       code: "invalid_response",
-      message: "Mapbox MCP response did not include result.content.",
+      message: "Mapbox MCP response did not include result.content or result.structuredContent.",
       raw: { jsonrpc: "2.0", result: {} },
     });
   });

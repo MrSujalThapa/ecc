@@ -125,13 +125,25 @@ const tokenize = (value: string): string[] =>
     .filter((token) => token.length > 0);
 
 const extractMatchText = (value: Record<string, unknown>): string =>
-  [
-    typeof value.place_name === "string" ? value.place_name : "",
-    typeof value.name === "string" ? value.name : "",
-    typeof value.address === "string" ? value.address : "",
-  ]
-    .filter((segment) => segment.length > 0)
-    .join(" ");
+  {
+    const properties =
+      typeof value.properties === "object" && value.properties !== null
+        ? (value.properties as Record<string, unknown>)
+        : null;
+
+    return [
+      typeof value.place_name === "string" ? value.place_name : "",
+      typeof value.name === "string" ? value.name : "",
+      typeof value.address === "string" ? value.address : "",
+      typeof properties?.full_address === "string" ? properties.full_address : "",
+      typeof properties?.place_formatted === "string"
+        ? properties.place_formatted
+        : "",
+      typeof properties?.name === "string" ? properties.name : "",
+    ]
+      .filter((segment) => segment.length > 0)
+      .join(" ");
+  };
 
 const scoreMatch = (query: string, value: Record<string, unknown>): number => {
   const matchText = extractMatchText(value);
@@ -176,7 +188,7 @@ export const geocodeWithMapboxMcp = async (
 
   const toolResult = await client.callTool({
     toolName,
-    arguments: { query },
+    arguments: { q: query },
   });
 
   if (!toolResult.ok) {
@@ -228,6 +240,12 @@ export const geocodeWithMapboxMcp = async (
     place_name:
       (typeof firstMatch.place_name === "string" && firstMatch.place_name) ||
       (typeof firstMatch.name === "string" && firstMatch.name) ||
+      (typeof (firstMatch.properties as Record<string, unknown> | undefined)
+        ?.full_address === "string" &&
+        ((firstMatch.properties as Record<string, unknown>).full_address as string)) ||
+      (typeof (firstMatch.properties as Record<string, unknown> | undefined)
+        ?.name === "string" &&
+        ((firstMatch.properties as Record<string, unknown>).name as string)) ||
       query,
     confidence:
       extractNumber(firstMatch.confidence) ??
@@ -235,6 +253,9 @@ export const geocodeWithMapboxMcp = async (
       1,
     provider_place_id:
       (typeof firstMatch.mapbox_id === "string" && firstMatch.mapbox_id) ||
+      (typeof (firstMatch.properties as Record<string, unknown> | undefined)
+        ?.mapbox_id === "string" &&
+        ((firstMatch.properties as Record<string, unknown>).mapbox_id as string)) ||
       (typeof firstMatch.id === "string" && firstMatch.id) ||
       null,
     selected_match_text: extractMatchText(firstMatch) || null,

@@ -40,24 +40,24 @@ const withMockedMapboxMcp = async <T>(
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        jsonrpc: "2.0",
-        result: {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                features: features.map((feature) => ({
-                  place_name: feature.place_name,
+      text: async () =>
+        `event: message\ndata: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            structuredContent: {
+              type: "FeatureCollection",
+              features: features.map((feature) => ({
+                type: "Feature",
+                geometry: { type: "Point", coordinates: feature.coordinates },
+                properties: {
                   mapbox_id: feature.mapbox_id,
                   relevance: feature.relevance,
-                  geometry: { coordinates: feature.coordinates },
-                })),
-              }),
+                  full_address: feature.place_name,
+                },
+              })),
             },
-          ],
-        },
-      }),
+          },
+        })}\n\n`,
     }) as Response) as typeof fetch;
 
   try {
