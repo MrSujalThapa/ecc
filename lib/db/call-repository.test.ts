@@ -23,6 +23,52 @@ import {
   resetDemoStore,
 } from "@/lib/server/demo-store";
 
+const withMockedMapboxMcp = async <T>(
+  features: Array<{
+    place_name: string;
+    mapbox_id: string;
+    relevance: number;
+    coordinates: [number, number];
+  }>,
+  run: () => Promise<T>,
+): Promise<T> => {
+  process.env.MAPBOX_MCP_ENABLED = "true";
+  process.env.MAPBOX_ACCESS_TOKEN = "pk.test";
+  const originalFetch = global.fetch;
+  global.fetch = (async () =>
+    ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () =>
+        `event: message\ndata: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            structuredContent: {
+              type: "FeatureCollection",
+              features: features.map((feature) => ({
+                type: "Feature",
+                geometry: { type: "Point", coordinates: feature.coordinates },
+                properties: {
+                  mapbox_id: feature.mapbox_id,
+                  relevance: feature.relevance,
+                  full_address: feature.place_name,
+                },
+              })),
+            },
+          },
+        })}\n\n`,
+    }) as Response) as typeof fetch;
+
+  try {
+    return await run();
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.MAPBOX_MCP_ENABLED;
+    delete process.env.MAPBOX_ACCESS_TOKEN;
+  }
+};
+
 describe("call-repository (in-memory / no Supabase)", () => {
   beforeEach(() => {
     resetDemoStore();
@@ -421,6 +467,120 @@ describe("call-repository (in-memory / no Supabase)", () => {
         ),
       ).toBe(true);
       expect(withoutOp.every((i) => i.status !== "human_active")).toBe(true);
+    });
+
+    it("replaces a 100-incident disaster run with a fresh 50 when reset_existing is true", async () => {
+      await repositorySimulateDisaster({
+        reset_existing: true,
+        offset: 0,
+        batch_size: 100,
+        maxCap: 100,
+      });
+      expect(getDemoStoreSizes().incidents).toBe(100);
+
+      const out = await repositorySimulateDisaster({
+        reset_existing: true,
+        offset: 0,
+        batch_size: 50,
+        maxCap: 100,
+      });
+
+      expect(out.created_incidents).toHaveLength(50);
+      expect(out.created_call_sessions).toHaveLength(50);
+      expect(getDemoStoreSizes().incidents).toBe(50);
+      expect(getDemoStoreSizes().callSessions).toBe(50);
+    });
+
+    it("realistic mode runs caller text through repositoryCallTurn and persists non-Toronto coordinates", async () => {
+      const out = await withMockedMapboxMcp(
+        [
+          {
+            place_name: "110 University Ave W, Waterloo, Ontario",
+            mapbox_id: "mbx.waterloo",
+            relevance: 0.99,
+            coordinates: [-80.5204, 43.4643],
+          },
+        ],
+        () =>
+          repositorySimulateDisaster({
+            reset_existing: true,
+            simulation_strategy: "realistic",
+            transcripts: ["110 University Ave W, Waterloo, Ontario, Canada"],
+            maxCap: 100,
+          }),
+      );
+
+      expect(out.created_incidents).toHaveLength(1);
+      expect(out.created_call_sessions).toHaveLength(1);
+      expect(out.created_incidents[0]?.coordinates).toEqual({
+        lat: 43.4643,
+        lng: -80.5204,
+      });
+      expect(out.created_incidents[0]?.location).toBe(
+        "110 University Ave W, Waterloo, Ontario",
+      );
+      expect(out.created_incidents[0]?.coordinates?.lng).toBeLessThan(-80);
+      expect(
+        out.created_incidents[0]?.collected_fields.realistic_geocode_debug,
+      ).toMatchObject({
+        extracted_location_text:
+          "110 University Ave W, Waterloo, Ontario, Canada",
+        geocode_location_ran: true,
+        geocode_source: "mapbox_mcp",
+        normalized_query: "110 University Ave W, Waterloo, Ontario, Canada",
+        normalized_location: "110 University Ave W, Waterloo, Ontario",
+        coordinates: { lat: 43.4643, lng: -80.5204 },
+        coordinates_persisted: true,
+        used_seeded_geometry: false,
+      });
+
+      const audits = listAuditLogsForIncident(
+        out.created_incidents[0]!.id,
+        "call_turn_final",
+      );
+      const patch = audits[0]?.patch as { tool_results?: Array<{ tool?: string; source?: string }> };
+      expect(patch.tool_results?.map((result) => result.tool)).toEqual([
+        "geocode_location",
+      ]);
+      expect(patch.tool_results?.[0]?.source).toBe("mapbox_mcp");
+    });
+
+    it("realistic mode geocodes CN Tower transcripts instead of using seeded Toronto geometry", async () => {
+      const out = await withMockedMapboxMcp(
+        [
+          {
+            place_name: "CN Tower, 290 Bremner Blvd, Toronto, Ontario",
+            mapbox_id: "mbx.cn_tower",
+            relevance: 0.98,
+            coordinates: [-79.3871, 43.6426],
+          },
+        ],
+        () =>
+          repositorySimulateDisaster({
+            reset_existing: true,
+            simulation_strategy: "realistic",
+            transcripts: ["CN Tower, 290 Bremner Blvd, Toronto, ON, Canada"],
+            maxCap: 100,
+          }),
+      );
+
+      expect(out.created_incidents).toHaveLength(1);
+      expect(out.created_incidents[0]?.location).toBe(
+        "CN Tower, 290 Bremner Blvd, Toronto, Ontario",
+      );
+      expect(out.created_incidents[0]?.coordinates?.lat).toBeCloseTo(43.6426, 3);
+      expect(out.created_incidents[0]?.coordinates?.lng).toBeCloseTo(-79.3871, 3);
+      expect(
+        out.created_incidents[0]?.collected_fields.realistic_geocode_debug,
+      ).toMatchObject({
+        extracted_location_text: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+        geocode_location_ran: true,
+        geocode_source: "mapbox_mcp",
+        normalized_query: "CN Tower, 290 Bremner Blvd, Toronto, ON, Canada",
+        coordinates: { lat: 43.6426, lng: -79.3871 },
+        coordinates_persisted: true,
+        used_seeded_geometry: false,
+      });
     });
   });
 

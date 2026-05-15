@@ -149,26 +149,26 @@ describe("executeAllowedToolRequests", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({
-          jsonrpc: "2.0",
-          result: {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  features: [
-                    {
-                      place_name: "BMO Field, Toronto, Ontario",
+        text: async () =>
+          `event: message\ndata: ${JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              structuredContent: {
+                type: "FeatureCollection",
+                features: [
+                  {
+                    type: "Feature",
+                    geometry: { type: "Point", coordinates: [-79.4187, 43.6332] },
+                    properties: {
                       mapbox_id: "mbx.123",
                       relevance: 0.98,
-                      geometry: { coordinates: [-79.4187, 43.6332] },
+                      full_address: "BMO Field, Toronto, Ontario",
                     },
-                  ],
-                }),
+                  },
+                ],
               },
-            ],
-          },
-        }),
+            },
+          })}\n\n`,
       }) as Response) as typeof fetch;
 
     try {
@@ -205,10 +205,13 @@ describe("executeAllowedToolRequests", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({
-          jsonrpc: "2.0",
-          result: { content: [{ type: "text", text: JSON.stringify({ features: [] }) }] },
-        }),
+        text: async () =>
+          `event: message\ndata: ${JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              structuredContent: { type: "FeatureCollection", features: [] },
+            },
+          })}\n\n`,
       }) as Response) as typeof fetch;
 
     try {

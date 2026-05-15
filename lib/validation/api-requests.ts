@@ -104,6 +104,9 @@ export const simulateBatchRequestSchema = z.object({
   offset: z.number().int().nonnegative().optional(),
   /** When true, delete existing incidents (and cascaded rows) before seeding (`docs/api_contracts.md`). */
   reset_existing: z.boolean().optional(),
+  simulation_strategy: z.enum(["seeded", "realistic"]).optional(),
+  transcripts: z.array(z.string().trim().min(1)).optional(),
+  seed_indices: z.array(z.number().int().nonnegative()).optional(),
 });
 
 export const surgeAnalyzeRequestSchema = z.object({

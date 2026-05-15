@@ -644,6 +644,9 @@ export type SimulateDisasterRequest = {
   batch_size?: number;
   center?: Coordinates;
   reset_existing?: boolean;
+  simulation_strategy?: "seeded" | "realistic";
+  transcripts?: string[];
+  seed_indices?: number[];
 };
 ```
 
@@ -671,6 +674,9 @@ export type SimulateWorldCupRequest = {
   batch_size?: number;
   event_center?: Coordinates;
   reset_existing?: boolean;
+  simulation_strategy?: "seeded" | "realistic";
+  transcripts?: string[];
+  seed_indices?: number[];
 };
 ```
 

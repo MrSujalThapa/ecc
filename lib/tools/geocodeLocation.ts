@@ -32,7 +32,12 @@ export type GeocodeLocationOutput = {
 };
 
 const fallbackGeocodeLocation = async (
-  args: GeocodeLocationArgs
+  args: GeocodeLocationArgs,
+  fallbackContext?: {
+    normalizedQuery?: string;
+    providerStatus?: "error" | "unavailable";
+    providerError?: string;
+  },
 ): Promise<GeocodeLocationOutput> => {
   const needle = args.location_text.toLowerCase();
   const match = LANDMARKS.find((landmark) =>
@@ -42,10 +47,14 @@ const fallbackGeocodeLocation = async (
   if (match) {
     return {
       data: {
+        extracted_location: args.location_text,
+        normalized_query: fallbackContext?.normalizedQuery ?? args.location_text,
         normalized_location: match.normalized_location,
         coordinates: match.coordinates,
         confidence: match.confidence,
         provider_place_id: match.provider_place_id,
+        provider_status: fallbackContext?.providerStatus ?? "unavailable",
+        provider_error: fallbackContext?.providerError ?? null,
       },
       source: "static_context",
     };
@@ -54,12 +63,16 @@ const fallbackGeocodeLocation = async (
   const fallbackCoords = deterministicJitter(needle);
   return {
     data: {
+      extracted_location: args.location_text,
+      normalized_query: fallbackContext?.normalizedQuery ?? args.location_text,
       normalized_location: `${args.location_text} (approximate, near ${TORONTO_CENTER.lat},${TORONTO_CENTER.lng})`,
       coordinates: fallbackCoords,
       confidence: 0.35,
       provider_place_id: null,
+      provider_status: fallbackContext?.providerStatus ?? "unavailable",
+      provider_error: fallbackContext?.providerError ?? null,
     },
-      source: "mock",
+    source: "mock",
   };
 };
 
@@ -71,6 +84,8 @@ export const geocodeLocation = async (
   if (mcpResult.status === "success" && mcpResult.coordinates) {
     return {
       data: {
+        extracted_location: args.location_text,
+        normalized_query: mcpResult.query,
         normalized_location: mcpResult.place_name ?? mcpResult.query,
         coordinates: {
           lat: mcpResult.coordinates.lat,
@@ -78,10 +93,17 @@ export const geocodeLocation = async (
         },
         confidence: mcpResult.confidence ?? 1,
         provider_place_id: mcpResult.provider_place_id ?? null,
+        provider_status: "success",
+        provider_error: null,
       },
       source: "mapbox_mcp",
     };
   }
 
-  return fallbackGeocodeLocation(args);
+  return fallbackGeocodeLocation(args, {
+    normalizedQuery: mcpResult.query,
+    providerStatus:
+      mcpResult.status === "success" ? "error" : mcpResult.status,
+    providerError: mcpResult.error,
+  });
 };

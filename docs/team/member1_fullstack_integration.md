@@ -71,6 +71,7 @@ This section summarizes what is **implemented now** vs **still missing**, mapped
 - **Main Step 12/13 — Simulation endpoints**
   - `POST /api/simulate/disaster`, `POST /api/simulate/world-cup`
   - **`reset_existing`** optional body flag (Zod + routes + repository): clears incidents (Supabase delete-all-in-table path or in-memory **`resetDemoStore`**) before seeding; **`batch_size: 0`** supported for “wipe only”.
+  - **`simulation_strategy`** optional body flag: `seeded` keeps the fast bulk Toronto seed flow; `realistic` creates incidents/call sessions and runs selected simulated caller text through the normal `repositoryCallTurn` runtime so `geocode_location` and Mapbox MCP can persist the final coordinates with no manual override.
   - **`lib/server/simulate-seed-enrichment.ts`** + **`lib/mock/simulate-seed-geometry.ts`**: deterministic **Toronto-area pins** (disaster uses **per-scenario slot offsets** shared with **`EVENT_ZONES`** / map impact layers); seeds append **caller + AI** lines to **`call_session.recent_transcript`**; **disaster** batches assign the first simulated rows to **`DIS-SIM-OP-*`** so **`assigned_operator`** / **`human_active`** reflect operator load in the UI (**`mergeSimulatedSurgeRow`** batch options).
 - **Supporting endpoints / dev harness**
   - `GET /api/responders/mock`

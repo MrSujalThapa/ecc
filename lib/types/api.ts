@@ -182,6 +182,9 @@ export type SimulateDisasterRequest = {
   offset?: number;
   center?: { lat: number; lng: number };
   reset_existing?: boolean;
+  simulation_strategy?: "seeded" | "realistic";
+  transcripts?: string[];
+  seed_indices?: number[];
 };
 
 export type SimulateDisasterResponse = {
@@ -196,6 +199,9 @@ export type SimulateWorldCupRequest = {
   offset?: number;
   event_center?: { lat: number; lng: number };
   reset_existing?: boolean;
+  simulation_strategy?: "seeded" | "realistic";
+  transcripts?: string[];
+  seed_indices?: number[];
 };
 
 export type SimulateWorldCupResponse = {

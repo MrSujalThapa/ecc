@@ -40,7 +40,10 @@ import {
 import { isoNow } from "@/lib/server/iso-now";
 import { newId } from "@/lib/server/ids";
 import { getMockResponders } from "@/lib/server/responders-mock-data";
-import { mergeSimulatedSurgeRow } from "@/lib/server/simulate-seed-enrichment";
+import {
+  getSimulatedSeedCallerText,
+  mergeSimulatedSurgeRow,
+} from "@/lib/server/simulate-seed-enrichment";
 import {
   buildSurgeGeoOpsAgentInput,
   priorityScoreFromSurgeRank,
@@ -91,6 +94,8 @@ const insertAudit = async (
   if (error) throw new Error(error.message);
 };
 
+const REALISTIC_SIMULATION_MAX_BATCH = 10 as const;
+
 // --- Controlled two-pass tool loop for /api/call/turn ---
 
 type TwoPassTriageOutcome = {
@@ -124,6 +129,58 @@ const hydrateIncidentPatchFromToolResults = (
 
   return { ...patch, location_confidence: confidence };
 };
+
+const buildRealisticGeocodeDebug = (
+  patch: TriageAgentOutput["incident_patch"],
+  toolResults: readonly ToolResult[],
+): Record<string, Json> => {
+  const geocode = toolResults.find(
+    (result): result is ToolResult<GeocodeLocationData> =>
+      result.tool === "geocode_location",
+  );
+  const geocodeData = geocode?.data;
+  const coordinates =
+    geocodeData?.coordinates ??
+    (patch.coordinates &&
+    typeof patch.coordinates === "object" &&
+    typeof patch.coordinates.lat === "number" &&
+    typeof patch.coordinates.lng === "number"
+      ? patch.coordinates
+      : null);
+
+  return {
+    simulation_kind: "realistic_geocode_smoke_test",
+    runtime_path: "repositoryCallTurn",
+    used_seeded_geometry: false,
+    extracted_location_text:
+      geocodeData?.extracted_location ??
+      (typeof patch.location === "string" ? patch.location : null),
+    geocode_location_ran: Boolean(geocode),
+    geocode_source: geocode?.source ?? null,
+    normalized_query: geocodeData?.normalized_query ?? null,
+    normalized_location:
+      geocodeData?.normalized_location ??
+      (typeof patch.location === "string" ? patch.location : null),
+    coordinates,
+    coordinates_persisted:
+      Boolean(coordinates) &&
+      patch.coordinates !== undefined &&
+      patch.coordinates !== null,
+    provider_status: geocodeData?.provider_status ?? null,
+    provider_error: geocodeData?.provider_error ?? null,
+  };
+};
+
+const attachRealisticSimulationDebug = (
+  patch: TriageAgentOutput["incident_patch"],
+  toolResults: readonly ToolResult[],
+): TriageAgentOutput["incident_patch"] => ({
+  ...patch,
+  collected_fields: {
+    ...(patch.collected_fields ?? {}),
+    realistic_geocode_debug: buildRealisticGeocodeDebug(patch, toolResults),
+  },
+});
 
 /**
  * Runs the Call Triage Agent with a bounded tool loop:
@@ -263,10 +320,16 @@ const applyTriagePatchesAndGate = (
   triageOutcome: TwoPassTriageOutcome
 ) => {
   const aiOutput = triageOutcome.output;
-  const incidentPatch = hydrateIncidentPatchFromToolResults(
+  let incidentPatch = hydrateIncidentPatchFromToolResults(
     aiOutput.incident_patch,
     triageOutcome.toolResults
   );
+  if (incident.last_updated_by === "simulate:realistic") {
+    incidentPatch = attachRealisticSimulationDebug(
+      incidentPatch,
+      triageOutcome.toolResults,
+    );
+  }
   const patchedIncident = applyIncidentPatch(incident, incidentPatch);
   const patchedSession = applyCallSessionPatch(session, aiOutput.call_session_patch);
   return applyTransferGate(patchedIncident, patchedSession, aiOutput.system_actions);
@@ -528,6 +591,8 @@ export const repositoryCallTurn = async (
     language,
     translated_text,
   } = parsed;
+  const triageProvider =
+    source === "simulate_realistic" ? "mock" : process.env.AI_PROVIDER;
 
   const client = getServiceRoleClient();
   if (!client) {
@@ -577,7 +642,7 @@ export const repositoryCallTurn = async (
       latestTranscript: text,
       transcriptHistory: history,
       mode: incident.mode,
-      provider: process.env.AI_PROVIDER,
+      provider: triageProvider,
     });
     const aiOutput = triageOutcome.output;
     const gated = applyTriagePatchesAndGate(incident, refreshedSession, triageOutcome);
@@ -674,7 +739,7 @@ export const repositoryCallTurn = async (
     latestTranscript: text,
     transcriptHistory: history,
     mode: incident.mode,
-    provider: process.env.AI_PROVIDER,
+    provider: triageProvider,
   });
   const aiOutput = triageOutcome.output;
   const gated = applyTriagePatchesAndGate(incident, session, triageOutcome);
@@ -1403,32 +1468,141 @@ const persistSimulatedSeedEnrichment = async (
   return merged;
 };
 
-const repositorySimulateSeed = async (input: {
+type SimulationStrategy = "seeded" | "realistic";
+
+type RepositorySimulateInput = {
   mode: AppMode;
   batch_size?: number;
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
-}): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
+};
+
+const clampBatchSize = (value: number, maxCap: number): number =>
+  Math.min(Math.max(0, value), maxCap);
+
+const buildRealisticSimulationTexts = (
+  input: RepositorySimulateInput,
+): string[] => {
+  const { mode } = input;
+  if (mode !== "disaster" && mode !== "world_cup") {
+    return [];
+  }
+
+  const explicitTranscripts = (input.transcripts ?? [])
+    .map((text) => text.trim())
+    .filter((text) => text.length > 0);
+  if (explicitTranscripts.length > 0) {
+    const desiredCount = clampBatchSize(
+      input.batch_size ?? explicitTranscripts.length,
+      REALISTIC_SIMULATION_MAX_BATCH,
+    );
+    return explicitTranscripts.slice(0, desiredCount);
+  }
+
+  const selectedSeedIndices = input.seed_indices ?? [];
+  if (selectedSeedIndices.length > 0) {
+    const desiredCount = clampBatchSize(
+      input.batch_size ?? selectedSeedIndices.length,
+      REALISTIC_SIMULATION_MAX_BATCH,
+    );
+    return selectedSeedIndices
+      .slice(0, desiredCount)
+      .map((seedIndex) => getSimulatedSeedCallerText(mode, seedIndex));
+  }
+
+  const desiredCount = clampBatchSize(
+    input.batch_size ?? Math.min(3, REALISTIC_SIMULATION_MAX_BATCH),
+    REALISTIC_SIMULATION_MAX_BATCH,
+  );
+  const skip = input.offset ?? 0;
+  return Array.from({ length: desiredCount }, (_, index) =>
+    getSimulatedSeedCallerText(mode, skip + index),
+  );
+};
+
+const repositorySimulateRuntime = async (
+  input: RepositorySimulateInput,
+): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
   const client = getServiceRoleClient();
 
   if (input.reset_existing) {
+    await clearSimulationIncidentSource(client);
+  }
+
+  const transcripts = buildRealisticSimulationTexts(input);
+  const created_incidents: Incident[] = [];
+  const created_call_sessions: CallSession[] = [];
+
+  for (const [index, transcript] of transcripts.entries()) {
+    const started = await repositoryCallStart({ mode: input.mode });
     if (!client) {
-      resetDemoStore();
+      saveIncident({
+        ...started.incident,
+        last_updated_by: "simulate:realistic",
+      });
     } else {
       const { error } = await client
         .from("incidents")
-        .delete()
-        .gte("created_at", "1970-01-01T00:00:00Z");
+        .update({ last_updated_by: "simulate:realistic", updated_at: isoNow() })
+        .eq("id", started.incident_id);
       if (error) {
         throw new Error(error.message);
       }
     }
+    const turned = await repositoryCallTurn({
+      incident_id: started.incident_id,
+      call_session_id: started.call_session_id,
+      speaker: "caller",
+      text: transcript,
+      is_final: true,
+      source: "simulate_realistic",
+    });
+
+    created_incidents.push(turned.incident);
+    created_call_sessions.push(turned.call_session);
+
+    if (!client) {
+      newAuditLog({
+        incident_id: started.incident_id,
+        actor: "simulate",
+        action: `simulated_${input.mode}_realistic`,
+        patch: { batch_index: index, transcript },
+      });
+      continue;
+    }
+
+    await insertAudit(client, {
+      incident_id: started.incident_id,
+      actor: "simulate",
+      action: `simulated_${input.mode}_realistic`,
+      patch: { batch_index: index, transcript },
+    });
+  }
+
+  return { created_incidents, created_call_sessions };
+};
+
+const repositorySimulateSeed = async (
+  input: RepositorySimulateInput,
+): Promise<{ created_incidents: Incident[]; created_call_sessions: CallSession[] }> => {
+  const client = getServiceRoleClient();
+  const strategy = input.simulation_strategy ?? "seeded";
+
+  if (strategy === "realistic") {
+    return repositorySimulateRuntime(input);
+  }
+
+  if (input.reset_existing) {
+    await clearSimulationIncidentSource(client);
   }
 
   const skip = input.offset ?? 0;
   const requested = input.batch_size ?? Math.min(5, input.maxCap);
-  const count = Math.min(Math.max(0, requested), input.maxCap);
+  const count = clampBatchSize(requested, input.maxCap);
   const { mode } = input;
   const disasterBatchFor = (batchLocalIndex: number) =>
     mode === "disaster" ? { batchLocalIndex, batchSize: count } : undefined;
@@ -1484,11 +1658,32 @@ const repositorySimulateSeed = async (input: {
   return { created_incidents, created_call_sessions };
 };
 
+const clearSimulationIncidentSource = async (
+  client: ReturnType<typeof getServiceRoleClient>,
+): Promise<void> => {
+  if (!client) {
+    resetDemoStore();
+    return;
+  }
+
+  const { error } = await client
+    .from("incidents")
+    .delete()
+    .gte("created_at", "1970-01-01T00:00:00Z");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+};
+
 export const repositorySimulateDisaster = async (input: {
   batch_size?: number;
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
 }): Promise<SimulateDisasterResponse> => {
   const { created_incidents, created_call_sessions } = await repositorySimulateSeed({
     mode: "disaster",
@@ -1502,6 +1697,9 @@ export const repositorySimulateWorldCup = async (input: {
   offset?: number;
   maxCap: number;
   reset_existing?: boolean;
+  simulation_strategy?: SimulationStrategy;
+  transcripts?: string[];
+  seed_indices?: number[];
 }): Promise<SimulateWorldCupResponse> => {
   const { created_incidents, created_call_sessions } = await repositorySimulateSeed({
     mode: "world_cup",

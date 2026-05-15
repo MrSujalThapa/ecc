@@ -189,6 +189,30 @@ describe("simulateBatchRequestSchema", () => {
       expect(r.data.reset_existing).toBe(true);
     }
   });
+
+  it("accepts realistic simulation options", () => {
+    const r = simulateBatchRequestSchema.safeParse({
+      simulation_strategy: "realistic",
+      transcripts: ["110 University Ave W, Waterloo, Ontario"],
+      seed_indices: [2, 4],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.simulation_strategy).toBe("realistic");
+      expect(r.data.transcripts).toEqual([
+        "110 University Ave W, Waterloo, Ontario",
+      ]);
+      expect(r.data.seed_indices).toEqual([2, 4]);
+    }
+  });
+
+  it("rejects blank realistic transcripts", () => {
+    const r = simulateBatchRequestSchema.safeParse({
+      simulation_strategy: "realistic",
+      transcripts: ["   "],
+    });
+    expect(r.success).toBe(false);
+  });
 });
 
 describe("surgeAnalyzeRequestSchema", () => {

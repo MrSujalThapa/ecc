@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Incident } from "@/lib/types";
-import { dashboardFallbackIncidents } from "@/lib/mock/dashboardFallbackData";
 
 const { createClient } = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -66,22 +65,15 @@ const buildIncident = (overrides: Partial<Incident> = {}): Incident => ({
   ...overrides,
 });
 
-const createSupabaseMock = (rows: Incident[] = [], error: string | null = null) => {
-  const limit = vi.fn().mockResolvedValue({
-    data: rows,
-    error: error ? { message: error } : null,
-  });
-  const order = vi.fn(() => ({ limit }));
-  const select = vi.fn(() => ({ order }));
-  const from = vi.fn(() => ({ select }));
+const createSupabaseMock = () => {
   const subscribe = vi.fn();
   const on = vi.fn(() => ({ subscribe }));
   const channel = vi.fn(() => ({ on }));
   const removeChannel = vi.fn();
 
   return {
-    client: { from, channel, removeChannel },
-    spies: { from, select, order, limit, channel, on, subscribe, removeChannel },
+    client: { channel, removeChannel },
+    spies: { channel, on, subscribe, removeChannel },
   };
 };
 
@@ -135,13 +127,19 @@ describe("createSupabaseIncidentDataSource", () => {
   });
 
   it("bootstraps realtime subscription with normalized incidents when configured", async () => {
-    const supabase = createSupabaseMock([
-      buildIncident({ id: "INCIDENT-2", created_at: "2026-05-14T13:00:00.000Z" }),
-      buildIncident({ id: "incident-1", created_at: "2026-05-14T12:00:00.000Z" }),
-    ]);
+    const supabase = createSupabaseMock();
     createClient.mockReturnValue(supabase.client);
     const onStatusChange = vi.fn();
     const onChange = vi.fn();
+    apiIncidentDataSource.refreshIncidents.mockResolvedValue({
+      incidents: [
+        buildIncident({ id: "INCIDENT-2", created_at: "2026-05-14T13:00:00.000Z" }),
+        buildIncident({ id: "incident-1", created_at: "2026-05-14T12:00:00.000Z" }),
+      ],
+      usingFallback: false,
+      state: "ready",
+      message: null,
+    });
 
     const source = createSupabaseIncidentDataSource({ onStatusChange });
     source.subscribeToIncidents?.(onChange, vi.fn());
@@ -155,31 +153,60 @@ describe("createSupabaseIncidentDataSource", () => {
     ]);
   });
 
-  it("reports realtime bootstrap errors honestly", async () => {
-    const supabase = createSupabaseMock([], "bootstrap_failed");
+  it("refetches the authoritative API feed on realtime invalidation", async () => {
+    const supabase = createSupabaseMock();
+    createClient.mockReturnValue(supabase.client);
+    const onChange = vi.fn();
+    apiIncidentDataSource.refreshIncidents.mockResolvedValueOnce({
+      incidents: [buildIncident({ id: "initial-incident" })],
+      usingFallback: false,
+      state: "ready",
+      message: null,
+    });
+    apiIncidentDataSource.refreshIncidents.mockResolvedValueOnce({
+      incidents: [buildIncident({ id: "after-realtime" })],
+      usingFallback: false,
+      state: "ready",
+      message: null,
+    });
+
+    const source = createSupabaseIncidentDataSource();
+    source.subscribeToIncidents?.(onChange, vi.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const realtimeHandler = supabase.spies.on.mock.calls[0]?.[2];
+    expect(typeof realtimeHandler).toBe("function");
+
+    realtimeHandler?.({
+      eventType: "INSERT",
+      new: { id: "raw-realtime-row" },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiIncidentDataSource.refreshIncidents).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "after-realtime" }),
+    ]);
+  });
+
+  it("reports API refresh failures from realtime bootstrap honestly", async () => {
+    const supabase = createSupabaseMock();
     createClient.mockReturnValue(supabase.client);
     const onStatusChange = vi.fn();
     const onError = vi.fn();
+    apiIncidentDataSource.refreshIncidents.mockRejectedValue(
+      new Error("bootstrap_failed"),
+    );
 
     const source = createSupabaseIncidentDataSource({ onStatusChange });
     source.subscribeToIncidents?.(vi.fn(), onError);
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(onStatusChange).toHaveBeenCalledWith("error");
+    expect(onStatusChange).toHaveBeenLastCalledWith("error");
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(onError.mock.calls[0]?.[0]?.message).toContain("bootstrap_failed");
-  });
-
-  it("uses static fallback only when Supabase returns no incidents", async () => {
-    const supabase = createSupabaseMock([]);
-    createClient.mockReturnValue(supabase.client);
-
-    const source = createSupabaseIncidentDataSource();
-    const result = await source.getInitialIncidents();
-
-    expect(result.incidents).toEqual(dashboardFallbackIncidents);
-    expect(result.usingFallback).toBe(true);
-    expect(result.message).toContain("Supabase returned no incidents");
   });
 });

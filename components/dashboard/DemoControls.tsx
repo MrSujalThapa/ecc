@@ -5,6 +5,7 @@ import type { AppMode } from "@/lib/types";
 import {
   postSimulateDisaster,
   postSimulateWorldCup,
+  runRealisticGeocodeSimulation,
 } from "@/lib/data/simulationClient";
 import { useDashboardPersona } from "@/components/dashboard/DashboardPersonaContext";
 
@@ -15,6 +16,11 @@ type DemoControlsProps = {
   onAfterSimulation: () => Promise<void>;
   onRefreshIncidents: () => Promise<void>;
   onResetView: () => void;
+  onSimulationLifecycle?: (event: {
+    phase: "start" | "success" | "error";
+    kind: "disaster" | "world_cup" | "realistic_geocode" | "clear";
+    resetExisting: boolean;
+  }) => void;
   mode: AppMode | "all";
   setMode: (mode: AppMode | "all") => void;
 };
@@ -23,13 +29,14 @@ export const DemoControls = ({
   onAfterSimulation,
   onRefreshIncidents,
   onResetView,
+  onSimulationLifecycle,
   mode,
   setMode,
 }: DemoControlsProps) => {
   const { visibility } = useDashboardPersona();
 
   const [simKind, setSimKind] = useState<
-    "idle" | "disaster" | "world_cup" | "refresh" | "clear"
+    "idle" | "disaster" | "world_cup" | "realistic_geocode" | "refresh" | "clear"
   >("idle");
   const [resetExisting, setResetExisting] = useState(false);
   const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(
@@ -41,11 +48,21 @@ export const DemoControls = ({
   const handleDisaster = useCallback(async () => {
     setSimKind("disaster");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "disaster",
+      resetExisting,
+    });
     const r = await postSimulateDisaster({
       batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "disaster",
+        resetExisting,
+      });
       setBanner({
         tone: "error",
         text: `Disaster simulation failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -55,21 +72,36 @@ export const DemoControls = ({
     }
     setMode("disaster");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "disaster",
+      resetExisting,
+    });
     setBanner({
       tone: "ok",
       text: `Disaster simulation: created ${r.data.created_incidents.length} incident(s).`,
     });
     setSimKind("idle");
-  }, [onAfterSimulation, resetExisting, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, resetExisting, setMode]);
 
   const handleWorldCup = useCallback(async () => {
     setSimKind("world_cup");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "world_cup",
+      resetExisting,
+    });
     const r = await postSimulateWorldCup({
       batch_size: DEFAULT_SIMULATE_BATCH_SIZE,
       reset_existing: resetExisting || undefined,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "world_cup",
+        resetExisting,
+      });
       setBanner({
         tone: "error",
         text: `World Cup simulation failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -79,12 +111,56 @@ export const DemoControls = ({
     }
     setMode("world_cup");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "world_cup",
+      resetExisting,
+    });
     setBanner({
       tone: "ok",
       text: `World Cup simulation: created ${r.data.created_incidents.length} incident(s).`,
     });
     setSimKind("idle");
-  }, [onAfterSimulation, resetExisting, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, resetExisting, setMode]);
+
+  const handleRealisticGeocode = useCallback(async () => {
+    setSimKind("realistic_geocode");
+    setBanner({
+      tone: "ok",
+      text: "Running realistic runtime geocode simulation...",
+    });
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "realistic_geocode",
+      resetExisting: true,
+    });
+    const r = await runRealisticGeocodeSimulation();
+    if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "realistic_geocode",
+        resetExisting: true,
+      });
+      setBanner({
+        tone: "error",
+        text: `Realistic geocode smoke test failed (${r.status}): ${r.errorText.slice(0, 280)}`,
+      });
+      setSimKind("idle");
+      return;
+    }
+    setMode("disaster");
+    await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "realistic_geocode",
+      resetExisting: true,
+    });
+    setBanner({
+      tone: "ok",
+      text: `Realistic geocode smoke test: created ${r.data.created_incidents.length} runtime incident(s).`,
+    });
+    setSimKind("idle");
+  }, [onAfterSimulation, onSimulationLifecycle, setMode]);
 
   const handleRefresh = useCallback(async () => {
     setSimKind("refresh");
@@ -108,11 +184,21 @@ export const DemoControls = ({
   const handleClearAllIncidents = useCallback(async () => {
     setSimKind("clear");
     setBanner(null);
+    onSimulationLifecycle?.({
+      phase: "start",
+      kind: "clear",
+      resetExisting: true,
+    });
     const r = await postSimulateDisaster({
       batch_size: 0,
       reset_existing: true,
     });
     if (!r.ok || !r.data) {
+      onSimulationLifecycle?.({
+        phase: "error",
+        kind: "clear",
+        resetExisting: true,
+      });
       setBanner({
         tone: "error",
         text: `Clear failed (${r.status}): ${r.errorText.slice(0, 280)}`,
@@ -122,12 +208,17 @@ export const DemoControls = ({
     }
     setMode("all");
     await onAfterSimulation();
+    onSimulationLifecycle?.({
+      phase: "success",
+      kind: "clear",
+      resetExisting: true,
+    });
     setBanner({
       tone: "ok",
       text: "All incidents cleared via simulate/disaster (reset_existing + batch_size 0).",
     });
     setSimKind("idle");
-  }, [onAfterSimulation, setMode]);
+  }, [onAfterSimulation, onSimulationLifecycle, setMode]);
 
   const handleResetView = useCallback(() => {
     setBanner(null);
@@ -163,6 +254,10 @@ export const DemoControls = ({
             Replace existing first (<code className="text-[#70d6ff]/90">reset_existing</code>)
           </label>
         </div>
+        <p className="text-xs text-[#8b9bb0]">
+          Disaster/World Cup = seeded surge. Realistic geocode smoke test = one turn through runtime triage +{" "}
+          <code className="font-mono text-[#70d6ff]/90">geocode_location</code>.
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
             aria-label="Trigger disaster simulation"
@@ -181,6 +276,17 @@ export const DemoControls = ({
             type="button"
           >
             {simKind === "world_cup" ? "Running..." : "World Cup simulation"}
+          </button>
+          <button
+            aria-label="Trigger realistic runtime geocode simulation"
+            className="rounded-full border border-[#52b788]/35 bg-[#0f2b24] px-3 py-1.5 text-sm font-medium text-[#d8fff0] transition hover:border-[#52b788]/60 hover:bg-[#123328] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={simBusy}
+            onClick={() => void handleRealisticGeocode()}
+            type="button"
+          >
+            {simKind === "realistic_geocode"
+              ? "Running realistic runtime geocode simulation..."
+              : "Realistic geocode smoke test"}
           </button>
           <button
             aria-label="Clear all incidents from the database"
@@ -229,8 +335,12 @@ export const DemoControls = ({
           <code className="font-mono text-[#70d6ff]/90">
             POST /api/simulate/disaster|world-cup
           </code>
-          . Optional <code className="font-mono text-[#70d6ff]/90">reset_existing</code>{" "}
-          is supported; simulations refetch incidents after success.
+          . Seeded surge buttons keep the old bulk path; the realistic geocode smoke test
+          posts{" "}
+          <code className="font-mono text-[#70d6ff]/90">
+            simulation_strategy: &quot;realistic&quot;
+          </code>{" "}
+          and refetches incidents after success.
         </p>
       )}
     </div>

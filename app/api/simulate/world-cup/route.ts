@@ -26,6 +26,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       offset: parsed.data.offset,
       maxCap: 50,
       reset_existing: parsed.data.reset_existing,
+      simulation_strategy: parsed.data.simulation_strategy,
+      transcripts: parsed.data.transcripts,
+      seed_indices: parsed.data.seed_indices,
     });
     return NextResponse.json(payload);
   } catch (e) {

@@ -185,6 +185,8 @@ function IncidentDrawerContent({
         >
           {activeTab === "triage" ? (
             <div className="space-y-5">
+              <RealisticGeocodeDebugPanel incident={incident} />
+
               <Section title="Recommended action">
                 <p className="rounded-2xl border border-cyan-300/20 bg-cyan-500/10 p-4 text-sm leading-6 text-cyan-50 shadow-lg shadow-cyan-950/30">
                   {incident.recommended_action ?? "No recommendation yet."}
@@ -431,6 +433,85 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
       <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
       <dd className="mt-1 break-words text-sm text-slate-200">{value}</dd>
     </div>
+  );
+}
+
+type RealisticGeocodeDebug = {
+  simulation_kind?: string;
+  runtime_path?: string;
+  used_seeded_geometry?: boolean;
+  extracted_location_text?: string | null;
+  geocode_location_ran?: boolean;
+  geocode_source?: string | null;
+  normalized_query?: string | null;
+  normalized_location?: string | null;
+  coordinates?: { lat?: number; lng?: number } | null;
+  coordinates_persisted?: boolean;
+  provider_status?: string | null;
+  provider_error?: string | null;
+};
+
+function RealisticGeocodeDebugPanel({ incident }: { incident: Incident }) {
+  const raw = incident.collected_fields.realistic_geocode_debug;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  const debug = raw as RealisticGeocodeDebug;
+  const coordinates =
+    debug.coordinates &&
+    typeof debug.coordinates === "object" &&
+    typeof debug.coordinates.lat === "number" &&
+    typeof debug.coordinates.lng === "number"
+      ? `${debug.coordinates.lat.toFixed(4)}, ${debug.coordinates.lng.toFixed(4)}`
+      : "Not available";
+
+  return (
+    <Section title="Realistic geocode debug">
+      <div className="grid gap-3">
+        <Detail
+          label="Extracted location"
+          value={debug.extracted_location_text ?? "Not available"}
+        />
+        <Detail
+          label="geocode_location ran"
+          value={debug.geocode_location_ran ? "Yes" : "No"}
+        />
+        <Detail label="Geocode source" value={debug.geocode_source ?? "Unknown"} />
+        <Detail
+          label="Normalized query"
+          value={debug.normalized_query ?? "Not available"}
+        />
+        <Detail
+          label="Normalized location"
+          value={debug.normalized_location ?? "Not available"}
+        />
+        <Detail label="Coordinates" value={coordinates} />
+        <Detail
+          label="Coordinates persisted"
+          value={debug.coordinates_persisted ? "Yes" : "No"}
+        />
+        <Detail
+          label="Seeded geometry used"
+          value={debug.used_seeded_geometry ? "Yes" : "No"}
+        />
+        <Detail
+          label="Runtime path"
+          value={debug.runtime_path ?? "repositoryCallTurn"}
+        />
+        {debug.provider_status || debug.provider_error ? (
+          <Detail
+            label="MCP status"
+            value={[
+              debug.provider_status ?? "unknown",
+              debug.provider_error ? `(${debug.provider_error})` : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          />
+        ) : null}
+      </div>
+    </Section>
   );
 }
 
