@@ -384,6 +384,7 @@ Dashboard UX should keep the map as the visual centerpiece while using queue/dra
 - Create AI voice agent.
 - Connect transcript events to backend.
 - Keep agent responses short and fast.
+- [x] Harden live-call session identity routing so webhook events persist and resolve by `twilio_call_sid` / `elevenlabs_conversation_id`, with explicit cleanup and tests covering sequential and parallel sessions.
 
 ### 10.3 Add call transfer path
 
