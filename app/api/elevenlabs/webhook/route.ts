@@ -28,7 +28,16 @@
  */
 
 import { NextResponse } from "next/server";
-import { repositoryCallEnd, repositoryCallStart, repositoryCallTurn } from "@/lib/db/call-repository";
+import {
+  repositoryCallEndByIdentity,
+  repositoryCallStart,
+  repositoryCallTurn,
+  repositoryFindCallSessionByElevenLabsConversationId,
+  repositoryFindCallSessionById,
+  repositoryFindCallSessionByTwilioCallSid,
+  repositoryPersistElevenLabsConversationId,
+  type CallSessionIdentityRecord,
+} from "@/lib/db/call-repository";
 import { runEmergencyTurn } from "@/lib/runtime/runEmergencyTurn";
 import {
   extractCallerPhoneFromJsonPayload,
@@ -47,12 +56,13 @@ import {
 import {
   getSessionByElevenLabsId,
   getSessionByTwilioSid,
-  getRecentPhoneSession,
+  listRecentPhoneSessions,
   patchVoiceSessionCallerPhone,
   registerVoiceSession,
   updateVoiceSessionElevenLabsId,
   patchVoiceSessionIds,
   patchVoiceTriageState,
+  removeVoiceSessionByLookupKey,
 } from "@/lib/voice/voiceSessionStore";
 import type {
   VoiceTranscriptHistoryTurn,
@@ -60,6 +70,7 @@ import type {
 } from "@/lib/voice/voiceSessionStore";
 import { enrichTranscriptWithIbmTranslation } from "@/lib/voice/transcriptTranslation";
 import { translateEnglishToLanguageWithIbm } from "@/lib/voice/ibmLanguageTranslator";
+import { OPERATOR_TRANSFER_STATUSES } from "@/lib/types/enums";
 
 // ---------------------------------------------------------------------------
 // Featherless voice reply — OpenAI-compatible, used when FEATHERLESS_API_KEY is set
@@ -331,6 +342,329 @@ const voiceDebug = (
   console.info(`[ECC Voice Debug] ${stage}`, payload);
 };
 
+type ResolvedWebhookSession = CallSessionIdentityRecord & {
+  source:
+    | "explicit_payload"
+    | "db_conversation_id"
+    | "db_twilio_call_sid"
+    | "memory_conversation_id"
+    | "memory_twilio_call_sid"
+    | "unsafe_fingerprint"
+    | "unsafe_recent_phone_session";
+  used_fallback: boolean;
+};
+
+type ResolveWebhookSessionInput = {
+  eventType: "llm_turn" | "transcript" | "post_call";
+  incidentId?: string | null;
+  callSessionId?: string | null;
+  conversationId?: string | null;
+  twilioCallSid?: string | null;
+  callerPhone?: string | null;
+  allowUnsafeFallback?: boolean;
+  fingerprint?: string | null;
+};
+
+const normalizeOperatorTransferStatus = (
+  value: string | null | undefined
+): (typeof OPERATOR_TRANSFER_STATUSES)[number] =>
+  OPERATOR_TRANSFER_STATUSES.includes(
+    value as (typeof OPERATOR_TRANSFER_STATUSES)[number]
+  )
+    ? (value as (typeof OPERATOR_TRANSFER_STATUSES)[number])
+    : "not_requested";
+
+const rememberResolvedSession = (resolved: ResolvedWebhookSession, input: {
+  conversationId?: string | null;
+  twilioCallSid?: string | null;
+  callerPhone?: string | null;
+}): void => {
+  const memoryKey =
+    input.twilioCallSid?.trim() ||
+    input.conversationId?.trim() ||
+    resolved.twilio_call_sid ||
+    resolved.elevenlabs_conversation_id ||
+    resolved.call_session_id;
+  if (!memoryKey) return;
+
+  registerVoiceSession({
+    twilio_call_sid: memoryKey,
+    incident_id: resolved.incident_id,
+    call_session_id: resolved.call_session_id,
+    elevenlabs_conversation_id:
+      input.conversationId?.trim() || resolved.elevenlabs_conversation_id,
+    caller_phone:
+      input.callerPhone ?? resolved.call_session.caller_phone ?? null,
+  });
+
+  if (resolved.twilio_call_sid && resolved.twilio_call_sid !== memoryKey) {
+    registerVoiceSession({
+      twilio_call_sid: resolved.twilio_call_sid,
+      incident_id: resolved.incident_id,
+      call_session_id: resolved.call_session_id,
+      elevenlabs_conversation_id:
+        input.conversationId?.trim() || resolved.elevenlabs_conversation_id,
+      caller_phone:
+        input.callerPhone ?? resolved.call_session.caller_phone ?? null,
+    });
+  }
+
+  if (input.conversationId?.trim()) {
+    updateVoiceSessionElevenLabsId(memoryKey, input.conversationId.trim());
+    patchVoiceSessionCallerPhone(
+      input.conversationId.trim(),
+      input.callerPhone ?? resolved.call_session.caller_phone ?? null
+    );
+  }
+
+  patchVoiceSessionIds(
+    memoryKey,
+    resolved.incident_id,
+    resolved.call_session_id
+  );
+  patchVoiceSessionCallerPhone(
+    memoryKey,
+    input.callerPhone ?? resolved.call_session.caller_phone ?? null
+  );
+};
+
+const persistResolvedIdentity = async (resolved: ResolvedWebhookSession, input: {
+  conversationId?: string | null;
+  twilioCallSid?: string | null;
+}): Promise<void> => {
+  const conversationId = input.conversationId?.trim();
+  if (conversationId) {
+    try {
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: resolved.call_session_id,
+        twilio_call_sid: input.twilioCallSid?.trim() || resolved.twilio_call_sid,
+        elevenlabs_conversation_id: conversationId,
+      });
+    } catch (error) {
+      console.warn(
+        `[elevenlabs/webhook] Failed to persist conversation identity for session=${resolved.call_session_id} conv=${conversationId}:`,
+        error
+      );
+    }
+  }
+};
+
+const toResolvedWebhookSession = (
+  record: CallSessionIdentityRecord,
+  source: ResolvedWebhookSession["source"],
+  used_fallback: boolean
+): ResolvedWebhookSession => ({
+  ...record,
+  source,
+  used_fallback,
+});
+
+export const resolveWebhookSession = async (
+  input: ResolveWebhookSessionInput
+): Promise<ResolvedWebhookSession | null> => {
+  const explicitCallSessionId = input.callSessionId?.trim() ?? "";
+  if (explicitCallSessionId) {
+    const explicit = await repositoryFindCallSessionById(explicitCallSessionId);
+    if (!explicit) {
+      console.warn(
+        `[elevenlabs/webhook] explicit call_session_id not found event=${input.eventType} call_session_id=${explicitCallSessionId}`
+      );
+      return null;
+    }
+    if (
+      input.incidentId?.trim() &&
+      explicit.incident_id !== input.incidentId.trim()
+    ) {
+      console.warn(
+        `[elevenlabs/webhook] explicit incident/session mismatch event=${input.eventType} incident_id=${input.incidentId} call_session_id=${explicitCallSessionId}`
+      );
+      return null;
+    }
+    return toResolvedWebhookSession(explicit, "explicit_payload", false);
+  }
+
+  const conversationId = input.conversationId?.trim() ?? "";
+  if (conversationId) {
+    const byConversation =
+      await repositoryFindCallSessionByElevenLabsConversationId(conversationId);
+    if (byConversation) {
+      return toResolvedWebhookSession(
+        byConversation,
+        "db_conversation_id",
+        false
+      );
+    }
+  }
+
+  const twilioCallSid = input.twilioCallSid?.trim() ?? "";
+  if (twilioCallSid) {
+    const bySid = await repositoryFindCallSessionByTwilioCallSid(twilioCallSid);
+    if (bySid) {
+      return toResolvedWebhookSession(bySid, "db_twilio_call_sid", false);
+    }
+  }
+
+  if (conversationId) {
+    const memory = getSessionByElevenLabsId(conversationId);
+    if (memory) {
+      return {
+        incident_id: memory.incident_id,
+        call_session_id: memory.call_session_id,
+        twilio_call_sid: memory.twilio_call_sid,
+        elevenlabs_conversation_id: conversationId,
+        status: memory.triage_state?.call_status === "closed" ? "closed" : "active",
+        ai_active: memory.triage_state?.ai_active ?? true,
+        call_session: {
+          id: memory.call_session_id,
+          incident_id: memory.incident_id,
+          twilio_call_sid: memory.twilio_call_sid,
+          elevenlabs_conversation_id: conversationId,
+          caller_phone: memory.caller_phone ?? null,
+          status: memory.triage_state?.call_status === "closed" ? "closed" : "active",
+          ai_active: memory.triage_state?.ai_active ?? true,
+          turn_count: 0,
+          recent_transcript: [],
+          required_fields: [],
+          missing_fields: [],
+          next_question: memory.triage_state?.next_question ?? null,
+          last_model_confidence: null,
+          should_escalate: memory.triage_state?.should_escalate ?? false,
+          operator_transfer_status: normalizeOperatorTransferStatus(
+            memory.triage_state?.operator_transfer_status
+          ),
+          created_at: memory.created_at,
+          updated_at: memory.triage_state?.last_updated_at ?? memory.created_at,
+        },
+        source: "memory_conversation_id",
+        used_fallback: true,
+      };
+    }
+  }
+
+  if (twilioCallSid) {
+    const memory = getSessionByTwilioSid(twilioCallSid);
+    if (memory) {
+      return {
+        incident_id: memory.incident_id,
+        call_session_id: memory.call_session_id,
+        twilio_call_sid: memory.twilio_call_sid ?? twilioCallSid,
+        elevenlabs_conversation_id: conversationId || null,
+        status: memory.triage_state?.call_status === "closed" ? "closed" : "active",
+        ai_active: memory.triage_state?.ai_active ?? true,
+        call_session: {
+          id: memory.call_session_id,
+          incident_id: memory.incident_id,
+          twilio_call_sid: memory.twilio_call_sid ?? twilioCallSid,
+          elevenlabs_conversation_id: conversationId || null,
+          caller_phone: memory.caller_phone ?? null,
+          status: memory.triage_state?.call_status === "closed" ? "closed" : "active",
+          ai_active: memory.triage_state?.ai_active ?? true,
+          turn_count: 0,
+          recent_transcript: [],
+          required_fields: [],
+          missing_fields: [],
+          next_question: memory.triage_state?.next_question ?? null,
+          last_model_confidence: null,
+          should_escalate: memory.triage_state?.should_escalate ?? false,
+          operator_transfer_status: normalizeOperatorTransferStatus(
+            memory.triage_state?.operator_transfer_status
+          ),
+          created_at: memory.created_at,
+          updated_at: memory.triage_state?.last_updated_at ?? memory.created_at,
+        },
+        source: "memory_twilio_call_sid",
+        used_fallback: true,
+      };
+    }
+  }
+
+  if (!input.allowUnsafeFallback) {
+    return null;
+  }
+
+  const fingerprint = input.fingerprint?.trim() ?? "";
+  if (fingerprint) {
+    const fpEntry = getSessionByElevenLabsId(fingerprint);
+    if (fpEntry) {
+      return {
+        incident_id: fpEntry.incident_id,
+        call_session_id: fpEntry.call_session_id,
+        twilio_call_sid: fpEntry.twilio_call_sid,
+        elevenlabs_conversation_id: fingerprint,
+        status: fpEntry.triage_state?.call_status === "closed" ? "closed" : "active",
+        ai_active: fpEntry.triage_state?.ai_active ?? true,
+        call_session: {
+          id: fpEntry.call_session_id,
+          incident_id: fpEntry.incident_id,
+          twilio_call_sid: fpEntry.twilio_call_sid,
+          elevenlabs_conversation_id: fingerprint,
+          caller_phone: fpEntry.caller_phone ?? null,
+          status: fpEntry.triage_state?.call_status === "closed" ? "closed" : "active",
+          ai_active: fpEntry.triage_state?.ai_active ?? true,
+          turn_count: 0,
+          recent_transcript: [],
+          required_fields: [],
+          missing_fields: [],
+          next_question: fpEntry.triage_state?.next_question ?? null,
+          last_model_confidence: null,
+          should_escalate: fpEntry.triage_state?.should_escalate ?? false,
+          operator_transfer_status: normalizeOperatorTransferStatus(
+            fpEntry.triage_state?.operator_transfer_status
+          ),
+          created_at: fpEntry.created_at,
+          updated_at: fpEntry.triage_state?.last_updated_at ?? fpEntry.created_at,
+        },
+        source: "unsafe_fingerprint",
+        used_fallback: true,
+      };
+    }
+  }
+
+  const recentPhoneSessions = listRecentPhoneSessions();
+  if (recentPhoneSessions.length !== 1) {
+    console.error(
+      `[elevenlabs/webhook] unsafe recent-phone fallback refused event=${input.eventType} candidates=${recentPhoneSessions.length}`
+    );
+    return null;
+  }
+
+  const recent = recentPhoneSessions[0]!;
+  console.error(
+    `[elevenlabs/webhook] UNSAFE recent-phone fallback used event=${input.eventType} sid=${recent.sid}`
+  );
+  return {
+    incident_id: recent.incident_id,
+    call_session_id: recent.call_session_id,
+    twilio_call_sid: recent.twilio_call_sid ?? recent.sid,
+    elevenlabs_conversation_id: conversationId || null,
+    status: recent.triage_state?.call_status === "closed" ? "closed" : "active",
+    ai_active: recent.triage_state?.ai_active ?? true,
+    call_session: {
+      id: recent.call_session_id,
+      incident_id: recent.incident_id,
+      twilio_call_sid: recent.twilio_call_sid ?? recent.sid,
+      elevenlabs_conversation_id: conversationId || null,
+      caller_phone: recent.caller_phone ?? null,
+      status: recent.triage_state?.call_status === "closed" ? "closed" : "active",
+      ai_active: recent.triage_state?.ai_active ?? true,
+      turn_count: 0,
+      recent_transcript: [],
+      required_fields: [],
+      missing_fields: [],
+      next_question: recent.triage_state?.next_question ?? null,
+      last_model_confidence: null,
+      should_escalate: recent.triage_state?.should_escalate ?? false,
+      operator_transfer_status: normalizeOperatorTransferStatus(
+        recent.triage_state?.operator_transfer_status
+      ),
+      created_at: recent.created_at,
+      updated_at: recent.triage_state?.last_updated_at ?? recent.created_at,
+    },
+    source: "unsafe_recent_phone_session",
+    used_fallback: true,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -394,38 +728,64 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
 
 
 
-    // Resolve incident/session IDs (from extra body, or store lookup)
-    let resolvedIncidentId = incidentId;
-    let resolvedCallSessionId = callSessionId;
     let resolvedTwilioCallSid = twilioCallSid;
     let resolvedCallerPhone: string | null = null;
-    let sessionLookupKey: string | undefined = conversationId ?? twilioCallSid ?? undefined;
-
-    // Fallback: look up by conversation_id
-    if ((!resolvedIncidentId || !resolvedCallSessionId) && conversationId) {
-      const entry = getSessionByElevenLabsId(conversationId);
-      if (entry) {
-        resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
-        resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
-        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(entry.caller_phone);
-        sessionLookupKey = conversationId;
-      }
-    }
-
-    // Fallback: look up by twilio call SID
-    if ((!resolvedIncidentId || !resolvedCallSessionId) && twilioCallSid) {
-      const entry = getSessionByTwilioSid(twilioCallSid);
-      if (entry) {
-        resolvedIncidentId = resolvedIncidentId ?? entry.incident_id;
-        resolvedCallSessionId = resolvedCallSessionId ?? entry.call_session_id;
-        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(entry.caller_phone);
-        sessionLookupKey = twilioCallSid;
-      }
-    }
 
     console.info(
       `[elevenlabs/webhook] turn IDs from payload → incidentId=${incidentId ?? "null"} sessionId=${callSessionId ?? "null"} convId=${conversationId ?? "null"} sid=${twilioCallSid ?? "null"}`
     );
+
+    const firstUserMsg = event.messages.find((m) => m.role === "user")?.content ?? "";
+    const fingerprint = firstUserMsg.trim()
+      ? `fp:${firstUserMsg.slice(0, 120)}`
+      : null;
+
+    let resolvedSession = await resolveWebhookSession({
+      eventType: "llm_turn",
+      incidentId,
+      callSessionId,
+      conversationId,
+      twilioCallSid,
+      allowUnsafeFallback: false,
+    });
+
+    if (!resolvedSession && !conversationId && !twilioCallSid && !callSessionId) {
+      resolvedSession = await resolveWebhookSession({
+        eventType: "llm_turn",
+        incidentId,
+        callSessionId,
+        conversationId,
+        twilioCallSid,
+        allowUnsafeFallback: true,
+        fingerprint,
+      });
+    }
+
+    let resolvedIncidentId = resolvedSession?.incident_id ?? incidentId;
+    let resolvedCallSessionId = resolvedSession?.call_session_id ?? callSessionId;
+    let sessionLookupKey: string | undefined =
+      conversationId ?? twilioCallSid ?? resolvedSession?.call_session_id ?? undefined;
+    if (resolvedSession) {
+      resolvedTwilioCallSid =
+        resolvedTwilioCallSid ?? resolvedSession.twilio_call_sid ?? null;
+      resolvedCallerPhone = normalizeCallerPhone(
+        resolvedSession.call_session.caller_phone
+      );
+      rememberResolvedSession(resolvedSession, {
+        conversationId,
+        twilioCallSid,
+        callerPhone: resolvedCallerPhone,
+      });
+      await persistResolvedIdentity(resolvedSession, {
+        conversationId,
+        twilioCallSid,
+      });
+      if (resolvedSession.used_fallback) {
+        console.warn(
+          `[elevenlabs/webhook] FALLBACK session resolution used event=llm_turn source=${resolvedSession.source} convId=${conversationId ?? "null"} sid=${twilioCallSid ?? "null"}`
+        );
+      }
+    }
 
     // isNewCall = true when this is a brand-new call and we generated temp local UUIDs.
     let isNewCall = false;
@@ -437,40 +797,11 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     );
 
     if (!resolvedIncidentId || !resolvedCallSessionId) {
-      // ElevenLabs Phone Numbers integration does NOT send a conversation_id in the
-      // Custom LLM webhook payload. We use a message-fingerprint to track the session
-      // across multiple turns: the first user utterance is stable for the whole call.
-      const firstUserMsg = event.messages.find((m) => m.role === "user")?.content ?? "";
-      const fingerprint = `fp:${firstUserMsg.slice(0, 120)}`;
-
-      // Check if we already created an incident for this call (later turns)
-      const fpEntry = getSessionByElevenLabsId(fingerprint);
-      if (fpEntry) {
-        resolvedIncidentId = fpEntry.incident_id;
-        resolvedCallSessionId = fpEntry.call_session_id;
-        resolvedCallerPhone = resolvedCallerPhone ?? normalizeCallerPhone(fpEntry.caller_phone);
-        sessionLookupKey = fingerprint;
-        console.info(
-          `[elevenlabs/webhook] Resolved session via fingerprint: incident=${resolvedIncidentId}`
+      if (!fingerprint) {
+        console.error(
+          `[elevenlabs/webhook] Unable to establish new-call fingerprint event=llm_turn convId=${conversationId ?? "null"} sid=${twilioCallSid ?? "null"}`
         );
       } else {
-        // Check for a recent real Twilio phone call not yet linked to a fingerprint.
-        // ElevenLabs doesn't forward TwiML <Parameter> tags to the custom LLM, so we
-        // scan bySid for a session registered by the Twilio webhook in the last 2 minutes.
-        // This gives us the real CallSid for live transfer.
-        const phoneSession = getRecentPhoneSession();
-        if (phoneSession && !resolvedTwilioCallSid) {
-          resolvedIncidentId = phoneSession.incident_id;
-          resolvedCallSessionId = phoneSession.call_session_id;
-          resolvedTwilioCallSid = phoneSession.twilio_call_sid ?? phoneSession.sid;
-          resolvedCallerPhone =
-            resolvedCallerPhone ?? normalizeCallerPhone(phoneSession.caller_phone);
-          updateVoiceSessionElevenLabsId(phoneSession.sid, fingerprint);
-          sessionLookupKey = fingerprint;
-          console.info(
-            `[elevenlabs/webhook] Linked to Twilio phone session: incident=${resolvedIncidentId} sid=${resolvedTwilioCallSid} caller_phone=${redactPhone(resolvedCallerPhone) ?? "null"}`
-          );
-        } else {
         // First turn of a new call — generate IDs locally (instant, no DB wait).
         // Register in memory immediately so subsequent turns can find the session.
         // Supabase write happens async so it never blocks the voice response.
@@ -484,9 +815,10 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           call_session_id: resolvedCallSessionId,
           mode: "normal",
           caller_phone: resolvedCallerPhone,
+          elevenlabs_conversation_id: conversationId ?? fingerprint,
         });
-        updateVoiceSessionElevenLabsId(fingerprint, fingerprint);
-        sessionLookupKey = fingerprint;
+        updateVoiceSessionElevenLabsId(fingerprint, conversationId ?? fingerprint);
+        sessionLookupKey = conversationId ?? fingerprint;
         if (conversationId && conversationId !== fingerprint) {
           registerVoiceSession({
             twilio_call_sid: conversationId,
@@ -494,6 +826,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             call_session_id: resolvedCallSessionId,
             mode: "normal",
             caller_phone: resolvedCallerPhone,
+            elevenlabs_conversation_id: conversationId,
           });
           updateVoiceSessionElevenLabsId(conversationId, conversationId);
         }
@@ -570,7 +903,6 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
             resolveRealIds(null);
           }
         })();
-        } // end else (no phone session found — new widget call)
       }
     }
 
@@ -951,7 +1283,7 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         : { type: "say" as const, text: sayToCaller };
 
     if (action.type === "transfer") {
-      if (resolvedTwilioCallSid) {
+      if (resolvedTwilioCallSid && resolvedIncidentId && resolvedCallSessionId) {
         void triggerTransfer({
           twilio_call_sid: resolvedTwilioCallSid,
           incident_id: resolvedIncidentId,
@@ -959,7 +1291,14 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
           baseUrl: getBaseUrl(request),
         });
       } else {
-        console.warn("[elevenlabs/webhook] Transfer needed but no twilio_call_sid available.");
+        console.warn(
+          "[elevenlabs/webhook] Transfer needed but strict call identity is incomplete.",
+          {
+            twilio_call_sid: resolvedTwilioCallSid ?? null,
+            incident_id: resolvedIncidentId ?? null,
+            call_session_id: resolvedCallSessionId ?? null,
+          }
+        );
       }
       const bridgeText =
         sayToCaller !== SAFE_FALLBACK_PHRASE
@@ -990,10 +1329,23 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
       return NextResponse.json({ ok: true, note: "partial or agent turn -- skipped" });
     }
 
-    const entry = getSessionByElevenLabsId(conversationId);
-    if (!entry) {
-      console.warn(`[elevenlabs/webhook] Transcript event: no session for conv_id=${conversationId}`);
+    const resolved = await resolveWebhookSession({
+      eventType: "transcript",
+      conversationId,
+      allowUnsafeFallback: false,
+    });
+    if (!resolved) {
+      console.warn(
+        `[elevenlabs/webhook] Transcript event unresolved conv_id=${conversationId} reason=strict_lookup_failed`
+      );
       return NextResponse.json({ ok: true, note: "session not found" });
+    }
+    rememberResolvedSession(resolved, { conversationId });
+    await persistResolvedIdentity(resolved, { conversationId });
+    if (resolved.used_fallback) {
+      console.warn(
+        `[elevenlabs/webhook] FALLBACK session resolution used event=transcript source=${resolved.source} convId=${conversationId}`
+      );
     }
 
     try {
@@ -1001,18 +1353,24 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         route: "/api/elevenlabs/webhook",
         path: "transcript_event",
         latestTranscript: shortText(text),
-        incident_id: entry.incident_id,
-        call_session_id: entry.call_session_id,
+        incident_id: resolved.incident_id,
+        call_session_id: resolved.call_session_id,
         ...voiceStateDebugFields(
-          entry.triage_state,
-          recentHistoryFor(entry.triage_state).length
+          resolved.call_session
+            ? (getSessionByElevenLabsId(conversationId) ??
+                getSessionByTwilioSid(resolved.twilio_call_sid ?? ""))?.triage_state
+            : null,
+          recentHistoryFor(
+            (getSessionByElevenLabsId(conversationId) ??
+              getSessionByTwilioSid(resolved.twilio_call_sid ?? ""))?.triage_state
+          ).length
         ),
         provider: process.env.AI_PROVIDER ?? null,
       });
 
       const result = await repositoryCallTurn({
-        incident_id: entry.incident_id,
-        call_session_id: entry.call_session_id,
+        incident_id: resolved.incident_id,
+        call_session_id: resolved.call_session_id,
         speaker: "caller",
         text,
         is_final: true,
@@ -1048,7 +1406,10 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
         route: "/api/elevenlabs/webhook",
         path: "transcript_event",
         say_to_caller: shortText(result.say_to_caller),
-        transcriptHistoryLength: recentHistoryFor(entry.triage_state).length,
+        transcriptHistoryLength: recentHistoryFor(
+          getSessionByElevenLabsId(conversationId)?.triage_state ??
+            getSessionByTwilioSid(resolved.twilio_call_sid ?? "")?.triage_state
+        ).length,
         incident_id: result.incident.id,
         public_id: result.incident.public_id,
         call_session_id: result.call_session.id,
@@ -1082,23 +1443,33 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
   // ---------------------------------------------------------------------------
   if (event.kind === "post_call") {
     const { conversationId } = event;
-    const entry = getSessionByElevenLabsId(conversationId);
+    const resolved = await resolveWebhookSession({
+      eventType: "post_call",
+      conversationId,
+      allowUnsafeFallback: false,
+    });
 
-    if (!entry) {
-      console.warn(`[elevenlabs/webhook] Post-call: no session for conv_id=${conversationId}`);
+    if (!resolved) {
+      console.warn(
+        `[elevenlabs/webhook] Post-call unresolved conv_id=${conversationId} reason=strict_lookup_failed`
+      );
       return NextResponse.json({ ok: true, note: "session not found" });
     }
 
     try {
-      await repositoryCallEnd({
-        incident_id: entry.incident_id,
-        call_session_id: entry.call_session_id,
+      await repositoryCallEndByIdentity({
+        call_session_id: resolved.call_session_id,
+        elevenlabs_conversation_id: conversationId,
         reason: "completed",
       });
-      console.info(`[elevenlabs/webhook] Post-call: closed session incident=${entry.incident_id}`);
+      console.info(
+        `[elevenlabs/webhook] Post-call: closed session incident=${resolved.incident_id}`
+      );
     } catch (e) {
       console.error("[elevenlabs/webhook] post-call call/end error:", e);
     }
+
+    removeVoiceSessionByLookupKey(conversationId);
 
     return NextResponse.json({ ok: true });
   }

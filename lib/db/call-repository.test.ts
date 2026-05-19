@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   repositoryCallEnd,
+  repositoryCallEndByIdentity,
   repositoryCallStart,
   repositoryCallTurn,
+  repositoryFindCallSessionByElevenLabsConversationId,
+  repositoryFindCallSessionByTwilioCallSid,
   repositoryLatestCallerPhoneForIncident,
   repositoryListCallSessionsForDev,
   repositoryListIncidentsForDev,
@@ -10,6 +13,7 @@ import {
   repositoryOperatorSendSms,
   repositoryOperatorTakeover,
   repositoryOperatorUpdateIncident,
+  repositoryPersistElevenLabsConversationId,
   repositorySimulateDisaster,
   repositorySimulateWorldCup,
   repositorySurgeAnalyze,
@@ -82,6 +86,82 @@ describe("call-repository (in-memory / no Supabase)", () => {
       expect(r.call_session.incident_id).toBe(r.incident.id);
       expect(r.call_session.status).toBe("active");
       expect(getIncident(r.incident_id)).toBeDefined();
+    });
+  });
+
+  describe("session identity helpers", () => {
+    it("finds an active session by Twilio and ElevenLabs IDs", async () => {
+      const started = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-lookup-1",
+      });
+
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: started.call_session_id,
+        twilio_call_sid: "CA-lookup-1",
+        elevenlabs_conversation_id: "conv-lookup-1",
+      });
+
+      await expect(
+        repositoryFindCallSessionByTwilioCallSid("CA-lookup-1")
+      ).resolves.toMatchObject({
+        incident_id: started.incident_id,
+        call_session_id: started.call_session_id,
+        twilio_call_sid: "CA-lookup-1",
+      });
+
+      await expect(
+        repositoryFindCallSessionByElevenLabsConversationId("conv-lookup-1")
+      ).resolves.toMatchObject({
+        incident_id: started.incident_id,
+        call_session_id: started.call_session_id,
+        elevenlabs_conversation_id: "conv-lookup-1",
+      });
+    });
+
+    it("updates the existing row when an ElevenLabs conversation ID arrives later", async () => {
+      const started = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-later-conv",
+      });
+
+      expect(started.call_session.elevenlabs_conversation_id).toBeNull();
+
+      const updated = await repositoryPersistElevenLabsConversationId({
+        call_session_id: started.call_session_id,
+        twilio_call_sid: "CA-later-conv",
+        elevenlabs_conversation_id: "conv-later-conv",
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.call_session_id).toBe(started.call_session_id);
+      expect(updated?.elevenlabs_conversation_id).toBe("conv-later-conv");
+
+      const rows = await repositoryListCallSessionsForDev(started.incident_id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.id).toBe(started.call_session_id);
+      expect(rows[0]?.elevenlabs_conversation_id).toBe("conv-later-conv");
+    });
+
+    it("closes the exact matching session by ElevenLabs identity", async () => {
+      const started = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-end-by-conv",
+      });
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: started.call_session_id,
+        twilio_call_sid: "CA-end-by-conv",
+        elevenlabs_conversation_id: "conv-end-by-conv",
+      });
+
+      const ended = await repositoryCallEndByIdentity({
+        elevenlabs_conversation_id: "conv-end-by-conv",
+        reason: "completed",
+      });
+
+      expect(ended).not.toBeNull();
+      expect(ended?.call_session.id).toBe(started.call_session_id);
+      expect(ended?.call_session.status).toBe("closed");
     });
   });
 
@@ -243,6 +323,108 @@ describe("call-repository (in-memory / no Supabase)", () => {
         is_final: false,
       });
       expect(out.triage_trace).toBeNull();
+    });
+
+    it("keeps sequential call histories isolated when an old session remains in the store", async () => {
+      const oldCall = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-old-call",
+      });
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: oldCall.call_session_id,
+        twilio_call_sid: "CA-old-call",
+        elevenlabs_conversation_id: "conv-old-call",
+      });
+      await repositoryCallTurn({
+        incident_id: oldCall.incident_id,
+        call_session_id: oldCall.call_session_id,
+        speaker: "caller",
+        text: "old caller transcript",
+        is_final: true,
+      });
+      await repositoryCallEndByIdentity({
+        call_session_id: oldCall.call_session_id,
+        reason: "completed",
+      });
+
+      const newCall = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-new-call",
+      });
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: newCall.call_session_id,
+        twilio_call_sid: "CA-new-call",
+        elevenlabs_conversation_id: "conv-new-call",
+      });
+
+      const out = await repositoryCallTurn({
+        incident_id: newCall.incident_id,
+        call_session_id: newCall.call_session_id,
+        speaker: "caller",
+        text: "new caller transcript",
+        is_final: true,
+      });
+
+      expect(out.call_session.id).toBe(newCall.call_session_id);
+      expect(getTranscriptHistoryForSession(oldCall.call_session_id).map((e) => e.text)).toContain(
+        "old caller transcript"
+      );
+      expect(getTranscriptHistoryForSession(oldCall.call_session_id).map((e) => e.text)).not.toContain(
+        "new caller transcript"
+      );
+      expect(getTranscriptHistoryForSession(newCall.call_session_id).map((e) => e.text)).toContain(
+        "new caller transcript"
+      );
+    });
+
+    it("keeps two active call sessions isolated by exact session IDs", async () => {
+      const sessionA = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-parallel-A",
+      });
+      const sessionB = await repositoryCallStart({
+        mode: "normal",
+        twilio_call_sid: "CA-parallel-B",
+      });
+
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: sessionA.call_session_id,
+        twilio_call_sid: "CA-parallel-A",
+        elevenlabs_conversation_id: "conv-parallel-A",
+      });
+      await repositoryPersistElevenLabsConversationId({
+        call_session_id: sessionB.call_session_id,
+        twilio_call_sid: "CA-parallel-B",
+        elevenlabs_conversation_id: "conv-parallel-B",
+      });
+
+      await repositoryCallTurn({
+        incident_id: sessionA.incident_id,
+        call_session_id: sessionA.call_session_id,
+        speaker: "caller",
+        text: "transcript A only",
+        is_final: true,
+      });
+      await repositoryCallTurn({
+        incident_id: sessionB.incident_id,
+        call_session_id: sessionB.call_session_id,
+        speaker: "caller",
+        text: "transcript B only",
+        is_final: true,
+      });
+
+      expect(getTranscriptHistoryForSession(sessionA.call_session_id).map((e) => e.text)).toContain(
+        "transcript A only"
+      );
+      expect(getTranscriptHistoryForSession(sessionA.call_session_id).map((e) => e.text)).not.toContain(
+        "transcript B only"
+      );
+      expect(getTranscriptHistoryForSession(sessionB.call_session_id).map((e) => e.text)).toContain(
+        "transcript B only"
+      );
+      expect(getTranscriptHistoryForSession(sessionB.call_session_id).map((e) => e.text)).not.toContain(
+        "transcript A only"
+      );
     });
   });
 

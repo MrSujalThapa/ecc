@@ -13,7 +13,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { repositoryCallEnd } from "@/lib/db/call-repository";
+import {
+  repositoryCallEndByIdentity,
+  repositoryFindCallSessionByTwilioCallSid,
+} from "@/lib/db/call-repository";
 import {
   getSessionByTwilioSid,
   removeVoiceSession,
@@ -44,7 +47,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
   }
 
   // Look up the backend session IDs
-  const entry = getSessionByTwilioSid(callSid);
+  const dbEntry = await repositoryFindCallSessionByTwilioCallSid(callSid);
+  const memoryEntry = getSessionByTwilioSid(callSid);
+  const entry = dbEntry ?? memoryEntry;
   if (!entry) {
     console.warn(
       `[twilio/status] No voice session found for CallSid=${callSid}. May have already been cleaned up.`
@@ -61,9 +66,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         : "abandoned";
 
   try {
-    await repositoryCallEnd({
-      incident_id: entry.incident_id,
+    await repositoryCallEndByIdentity({
       call_session_id: entry.call_session_id,
+      twilio_call_sid: callSid,
       reason,
     });
 

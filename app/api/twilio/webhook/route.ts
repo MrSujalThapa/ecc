@@ -20,7 +20,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { repositoryCallStart } from "@/lib/db/call-repository";
+import {
+  repositoryCallStart,
+  repositoryPersistElevenLabsConversationId,
+} from "@/lib/db/call-repository";
 import type { AppMode } from "@/lib/types/enums";
 import {
   buildTwimlConnectElevenLabs,
@@ -126,6 +129,18 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       twiml = registered.twiml;
       if (registered.conversationId) {
         updateVoiceSessionElevenLabsId(callSid, registered.conversationId);
+        try {
+          await repositoryPersistElevenLabsConversationId({
+            call_session_id: callSessionId,
+            twilio_call_sid: callSid,
+            elevenlabs_conversation_id: registered.conversationId,
+          });
+        } catch (error) {
+          console.warn(
+            `[twilio/webhook] Failed to persist ElevenLabs conversation id for CallSid=${callSid}:`,
+            error,
+          );
+        }
         console.info(`[twilio/webhook] ElevenLabs conv_id=${registered.conversationId}`);
       }
       console.info("[twilio/webhook] register-call OK — using ElevenLabs TwiML");
@@ -143,6 +158,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         signedUrl: conv?.signed_url ?? null,
         incidentId: incidentId,
         callSessionId: callSessionId,
+        twilioCallSid: callSid,
       });
       console.warn("[twilio/webhook] register-call failed — using fallback TwiML");
     }

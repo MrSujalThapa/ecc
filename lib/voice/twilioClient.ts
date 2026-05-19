@@ -41,6 +41,7 @@ export const buildTwimlConnectElevenLabs = (opts: {
   signedUrl?: string | null;
   incidentId?: string | null;
   callSessionId?: string | null;
+  twilioCallSid?: string | null;
 } = {}): string => {
   const agentId = opts.agentId ?? elevenLabsConfig.agentId;
 
@@ -57,8 +58,30 @@ export const buildTwimlConnectElevenLabs = (opts: {
 
   // No signed URL — use the stable ElevenLabs agent WebSocket URL.
   const streamUrl = `wss://api.elevenlabs.io/v1/convai/call?agent_id=${encodeURIComponent(agentId)}`;
+  const parameters = [
+    opts.incidentId
+      ? `      <Parameter name="incident_id" value="${escapeXml(opts.incidentId)}" />`
+      : null,
+    opts.callSessionId
+      ? `      <Parameter name="call_session_id" value="${escapeXml(opts.callSessionId)}" />`
+      : null,
+    opts.twilioCallSid
+      ? `      <Parameter name="twilio_call_sid" value="${escapeXml(opts.twilioCallSid)}" />`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  return parameters
+    ? `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${escapeXml(streamUrl)}">
+${parameters}
+    </Stream>
+  </Connect>
+</Response>`
+    : `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <Stream url="${escapeXml(streamUrl)}" />

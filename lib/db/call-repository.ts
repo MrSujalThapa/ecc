@@ -418,6 +418,232 @@ export const repositoryListCallSessionsForDev = async (
   return (data ?? []).map((r) => mapCallSessionRow(r as Record<string, unknown>));
 };
 
+export type CallSessionIdentityRecord = {
+  incident_id: string;
+  call_session_id: string;
+  twilio_call_sid: string | null;
+  elevenlabs_conversation_id: string | null;
+  status: CallSession["status"];
+  ai_active: boolean;
+  call_session: CallSession;
+};
+
+type SessionIdentityKind =
+  | "call_session_id"
+  | "twilio_call_sid"
+  | "elevenlabs_conversation_id";
+
+const toIdentityRecord = (
+  session: CallSession
+): CallSessionIdentityRecord => ({
+  incident_id: session.incident_id,
+  call_session_id: session.id,
+  twilio_call_sid: session.twilio_call_sid,
+  elevenlabs_conversation_id: session.elevenlabs_conversation_id,
+  status: session.status,
+  ai_active: session.ai_active,
+  call_session: session,
+});
+
+const buildIdentityAmbiguityError = (
+  kind: SessionIdentityKind,
+  value: string,
+  count: number
+): Error => {
+  const msg = `SESSION_IDENTITY_AMBIGUOUS:${kind}:${value}:${count}`;
+  console.error(`[call-repository] ${msg}`);
+  return new Error(msg);
+};
+
+const findDemoSessionByIdentity = (
+  kind: SessionIdentityKind,
+  value: string
+): CallSessionIdentityRecord | null => {
+  const matches: CallSession[] = [];
+  for (const incident of listAllIncidentsSorted()) {
+    for (const session of listCallSessionsForIncidentSorted(incident.id)) {
+      if (
+        (kind === "call_session_id" && session.id === value) ||
+        (kind === "twilio_call_sid" && session.twilio_call_sid === value) ||
+        (kind === "elevenlabs_conversation_id" &&
+          session.elevenlabs_conversation_id === value)
+      ) {
+        matches.push(session);
+      }
+    }
+  }
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw buildIdentityAmbiguityError(kind, value, matches.length);
+  }
+  return toIdentityRecord(matches[0]!);
+};
+
+const findSupabaseSessionByIdentity = async (
+  client: SupabaseClient,
+  kind: SessionIdentityKind,
+  value: string
+): Promise<CallSessionIdentityRecord | null> => {
+  const { data, error } = await client
+    .from("call_sessions")
+    .select("*")
+    .eq(kind, value);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []).map((r) => mapCallSessionRow(r as Record<string, unknown>));
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw buildIdentityAmbiguityError(kind, value, rows.length);
+  }
+  return toIdentityRecord(rows[0]!);
+};
+
+export const repositoryFindCallSessionById = async (
+  call_session_id: string
+): Promise<CallSessionIdentityRecord | null> => {
+  const id = call_session_id.trim();
+  if (!id) return null;
+  const client = getServiceRoleClient();
+  if (!client) {
+    return findDemoSessionByIdentity("call_session_id", id);
+  }
+  return findSupabaseSessionByIdentity(client, "call_session_id", id);
+};
+
+export const repositoryFindCallSessionByTwilioCallSid = async (
+  twilio_call_sid: string
+): Promise<CallSessionIdentityRecord | null> => {
+  const sid = twilio_call_sid.trim();
+  if (!sid) return null;
+  const client = getServiceRoleClient();
+  if (!client) {
+    return findDemoSessionByIdentity("twilio_call_sid", sid);
+  }
+  return findSupabaseSessionByIdentity(client, "twilio_call_sid", sid);
+};
+
+export const repositoryFindCallSessionByElevenLabsConversationId = async (
+  elevenlabs_conversation_id: string
+): Promise<CallSessionIdentityRecord | null> => {
+  const conversationId = elevenlabs_conversation_id.trim();
+  if (!conversationId) return null;
+  const client = getServiceRoleClient();
+  if (!client) {
+    return findDemoSessionByIdentity(
+      "elevenlabs_conversation_id",
+      conversationId
+    );
+  }
+  return findSupabaseSessionByIdentity(
+    client,
+    "elevenlabs_conversation_id",
+    conversationId
+  );
+};
+
+export const repositoryPersistElevenLabsConversationId = async (input: {
+  call_session_id?: string | null;
+  twilio_call_sid?: string | null;
+  elevenlabs_conversation_id: string;
+}): Promise<CallSessionIdentityRecord | null> => {
+  const conversationId = input.elevenlabs_conversation_id.trim();
+  if (!conversationId) {
+    throw new Error("INVALID_ELEVENLABS_CONVERSATION_ID");
+  }
+
+  const existingByConversation =
+    await repositoryFindCallSessionByElevenLabsConversationId(conversationId);
+  if (existingByConversation) {
+    if (
+      input.call_session_id &&
+      existingByConversation.call_session_id !== input.call_session_id
+    ) {
+      throw new Error(
+        `ELEVENLABS_CONVERSATION_ID_CONFLICT:${conversationId}:${existingByConversation.call_session_id}`
+      );
+    }
+    if (
+      input.twilio_call_sid &&
+      existingByConversation.twilio_call_sid &&
+      existingByConversation.twilio_call_sid !== input.twilio_call_sid
+    ) {
+      throw new Error(
+        `ELEVENLABS_CONVERSATION_ID_CONFLICT:${conversationId}:${existingByConversation.twilio_call_sid}`
+      );
+    }
+    return existingByConversation;
+  }
+
+  let target: CallSessionIdentityRecord | null = null;
+  if (input.call_session_id?.trim()) {
+    target = await repositoryFindCallSessionById(input.call_session_id);
+  }
+  if (!target && input.twilio_call_sid?.trim()) {
+    target = await repositoryFindCallSessionByTwilioCallSid(input.twilio_call_sid);
+  }
+  if (!target) return null;
+
+  if (
+    target.elevenlabs_conversation_id &&
+    target.elevenlabs_conversation_id !== conversationId
+  ) {
+    throw new Error(
+      `ELEVENLABS_CONVERSATION_ID_CONFLICT:${target.elevenlabs_conversation_id}:${target.call_session_id}`
+    );
+  }
+
+  if (target.elevenlabs_conversation_id === conversationId) {
+    return target;
+  }
+
+  const client = getServiceRoleClient();
+  if (!client) {
+    saveCallSession({
+      ...target.call_session,
+      elevenlabs_conversation_id: conversationId,
+      updated_at: isoNow(),
+    });
+    return repositoryFindCallSessionById(target.call_session_id);
+  }
+
+  const { error } = await client
+    .from("call_sessions")
+    .update({
+      elevenlabs_conversation_id: conversationId,
+      updated_at: isoNow(),
+    })
+    .eq("id", target.call_session_id);
+  if (error) throw new Error(error.message);
+  return repositoryFindCallSessionById(target.call_session_id);
+};
+
+export const repositoryCallEndByIdentity = async (input: {
+  reason?: CallEndRequest["reason"];
+  outcome?: CallEndRequest["outcome"];
+  call_session_id?: string | null;
+  twilio_call_sid?: string | null;
+  elevenlabs_conversation_id?: string | null;
+}): Promise<{ incident: Incident; call_session: CallSession } | null> => {
+  let resolved: CallSessionIdentityRecord | null = null;
+  if (input.call_session_id?.trim()) {
+    resolved = await repositoryFindCallSessionById(input.call_session_id);
+  }
+  if (!resolved && input.elevenlabs_conversation_id?.trim()) {
+    resolved = await repositoryFindCallSessionByElevenLabsConversationId(
+      input.elevenlabs_conversation_id
+    );
+  }
+  if (!resolved && input.twilio_call_sid?.trim()) {
+    resolved = await repositoryFindCallSessionByTwilioCallSid(input.twilio_call_sid);
+  }
+  if (!resolved) return null;
+  return repositoryCallEnd({
+    incident_id: resolved.incident_id,
+    call_session_id: resolved.call_session_id,
+    reason: input.reason,
+    outcome: input.outcome,
+  });
+};
+
 // --- call / start ---
 
 export const repositoryCallStart = async (
