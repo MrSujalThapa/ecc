@@ -308,6 +308,22 @@ export const removeVoiceSession = (twilio_call_sid: string): void => {
   }
 };
 
+/** Remove all aliases that point at the same entry as the provided key. */
+export const removeVoiceSessionByLookupKey = (lookup_key: string): void => {
+  const entry = getSessionEntry(lookup_key);
+  if (!entry) return;
+  for (const [sid, candidate] of bySid) {
+    if (candidate.call_session_id === entry.call_session_id) {
+      bySid.delete(sid);
+    }
+  }
+  for (const [elId, candidate] of byElId) {
+    if (candidate.call_session_id === entry.call_session_id) {
+      byElId.delete(elId);
+    }
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Read helpers
 // ---------------------------------------------------------------------------
@@ -335,14 +351,27 @@ export const getVoiceStoreSizes = (): { bySid: number; byElId: number } => ({
  * Only returns sessions created within the last 2 minutes.
  */
 export const getRecentPhoneSession = (): (VoiceSessionEntry & { sid: string }) | null => {
+  const sessions = listRecentPhoneSessions();
+  return sessions.length > 0 ? sessions[0]! : null;
+};
+
+/**
+ * Unsafe/dev-only helper for cases where upstream payloads carry no stable IDs.
+ * Callers should refuse to guess if this returns more than one candidate.
+ */
+export const listRecentPhoneSessions = (): Array<VoiceSessionEntry & { sid: string }> => {
   const cutoff = Date.now() - 2 * 60 * 1000;
-  let best: (VoiceSessionEntry & { sid: string }) | null = null;
+  const matches: Array<VoiceSessionEntry & { sid: string }> = [];
   for (const [sid, entry] of bySid) {
     if (sid.startsWith("fp:")) continue;
     if (new Date(entry.created_at).getTime() < cutoff) continue;
-    if (!best || new Date(entry.created_at) > new Date(best.created_at)) {
-      best = { ...entry, sid };
-    }
+    matches.push({ ...entry, sid });
   }
-  return best;
+  return matches.sort((a, b) =>
+    new Date(a.created_at) < new Date(b.created_at)
+      ? 1
+      : new Date(a.created_at) > new Date(b.created_at)
+        ? -1
+        : 0
+  );
 };

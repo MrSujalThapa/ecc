@@ -16,8 +16,12 @@
  */
 
 import { NextResponse } from "next/server";
-import { repositoryCallEnd, repositoryOperatorTakeover } from "@/lib/db/call-repository";
-import { parseTwilioFormBody, buildTwimlConnectElevenLabs, buildTwimlSayAndHangup } from "@/lib/voice/twilioClient";
+import {
+  repositoryCallEndByIdentity,
+  repositoryFindCallSessionByTwilioCallSid,
+  repositoryOperatorTakeover,
+} from "@/lib/db/call-repository";
+import { parseTwilioFormBody, buildTwimlSayAndHangup } from "@/lib/voice/twilioClient";
 import { elevenLabsConfig } from "@/lib/voice/voiceConfig";
 import {
   getSessionByTwilioSid,
@@ -52,7 +56,9 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     });
   }
 
-  const entry = getSessionByTwilioSid(callSid);
+  const dbEntry = await repositoryFindCallSessionByTwilioCallSid(callSid);
+  const memoryEntry = getSessionByTwilioSid(callSid);
+  const entry = dbEntry ?? memoryEntry;
   if (!entry) {
     console.warn(`[twilio/dial-result] No session for CallSid=${callSid}`);
     return new NextResponse(buildTwimlSayAndHangup("Thank you for calling."), {
@@ -82,7 +88,11 @@ export const POST = async (request: Request): Promise<NextResponse | Response> =
     }
 
     try {
-      await repositoryCallEnd({ incident_id, call_session_id, reason: "transferred" });
+      await repositoryCallEndByIdentity({
+        call_session_id,
+        twilio_call_sid: callSid,
+        reason: "transferred",
+      });
     } catch (e) {
       console.error("[twilio/dial-result] Call end error:", e);
     }

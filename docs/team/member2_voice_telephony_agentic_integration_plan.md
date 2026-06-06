@@ -330,6 +330,7 @@ Do not call the AI model after every word.
 - Final transcript turns reach `/api/call/turn`.
 - Backend returns `say_to_caller`.
 - AI reasoning remains backend-owned.
+- [x] Durable call identity is persisted and resolved by `twilio_call_sid` / `elevenlabs_conversation_id` before routing transcript turns, and unsafe fallback refuses to guess when multiple live sessions exist.
 
 ---
 
@@ -751,4 +752,3 @@ The final Member 2 deliverable is:
 ```text
 A reliable voice/telephony path where a real or simulated caller can speak to the system, final transcript turns reach the backend, backend AI/state updates occur, emergency calls can transfer to an operator, SMS behavior is real or clearly stubbed, and the dashboard has enough state to visualize call/transfer/SMS status.
 ```
-
